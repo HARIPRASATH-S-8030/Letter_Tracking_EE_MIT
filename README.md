@@ -215,7 +215,19 @@ Or specify a source SQLite file:
 ### QR / hardware support
 
 - Every letter request generates a QR code linked to its status page
-- Optional ESP device integration via `/esp_submit`, `/esp_approve`, `/trigger_esp`, and `/esp_data`
+- Optional ESP device integration via `/esp_submit`, `/esp_approve`, `/esp_action`, `/trigger_esp`, and `/esp_data`
+- ESP32 devices can POST status updates directly to Render using `/esp_submit`, `/esp_approve`, or `/esp_action`
+- Use `X-ESP-Token` header or `token` body field when `ESP_TOKEN` is configured
+- Example device payload:
+
+```json
+{
+  "id": "LETTER123",
+  "action": "submit",
+  "token": "your-esp-token"
+}
+```
+
 - Upload and decode scanned QR/barcode images when `Pillow` and `pyzbar` are available
 
 ## Security and reliability

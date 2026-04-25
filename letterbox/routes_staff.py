@@ -186,51 +186,52 @@ def register_staff_routes(app):
             return jsonify({"status": "ok", "message": "Marked as Pending.", "app_id": app_id})
         return redirect(url_for("staff_dashboard"))
 
-    @app.route("/esp_submit", methods=["POST"])
-    @csrf.exempt
-    def esp_submit():
-        data = request.get_json(silent=True) or request.form
+    def _handle_esp_action(data, action):
         app_id = (data.get("id") or data.get("app_id") or "").strip() if hasattr(data, "get") else ""
         if not app_id:
             return jsonify_error("Missing id.")
         if not esp_token_valid(data):
             return jsonify_error("Unauthorized.", 401)
 
+        target_status = settings.STATUS_SUBMITTED if action == "submit" else settings.STATUS_APPROVED
         try:
-            letter = update_letter_status(app_id, settings.STATUS_SUBMITTED)
+            letter = update_letter_status(app_id, target_status)
         except ValueError as exc:
             return jsonify_error(str(exc), 409, app_id=app_id)
 
         if not letter:
             return jsonify_error("Application not found.", 404, app_id=app_id)
 
-        return jsonify({"status": "ok", "message": "Marked as Submitted.", "app_id": app_id})
+        if action == "approve":
+            send_email(
+                letter.email,
+                f"Your letter {app_id} has been approved and placed in the output box.",
+                subject="Letter Approved",
+                ref=app_id,
+            )
+
+        return jsonify({"status": "ok", "message": f"Marked as {action.title()}.", "app_id": app_id})
+
+    @app.route("/esp_submit", methods=["POST"])
+    @csrf.exempt
+    def esp_submit():
+        data = request.get_json(silent=True) or request.form
+        return _handle_esp_action(data, "submit")
 
     @app.route("/esp_approve", methods=["POST"])
     @csrf.exempt
     def esp_approve():
         data = request.get_json(silent=True) or request.form
-        app_id = (data.get("id") or data.get("app_id") or "").strip() if hasattr(data, "get") else ""
-        if not app_id:
-            return jsonify_error("Missing id.")
-        if not esp_token_valid(data):
-            return jsonify_error("Unauthorized.", 401)
+        return _handle_esp_action(data, "approve")
 
-        try:
-            letter = update_letter_status(app_id, settings.STATUS_APPROVED)
-        except ValueError as exc:
-            return jsonify_error(str(exc), 409, app_id=app_id)
-
-        if not letter:
-            return jsonify_error("Application not found.", 404, app_id=app_id)
-
-        send_email(
-            letter.email,
-            f"Your letter {app_id} has been approved and placed in the output box.",
-            subject="Letter Approved",
-            ref=app_id,
-        )
-        return jsonify({"status": "ok", "message": "Marked as Approved.", "app_id": app_id})
+    @app.route("/esp_action", methods=["POST"])
+    @csrf.exempt
+    def esp_action():
+        data = request.get_json(silent=True) or request.form
+        action = (data.get("action") or request.args.get("action") or "").strip().lower() if hasattr(data, "get") else ""
+        if action not in {"submit", "approve"}:
+            return jsonify_error("Invalid action. Use 'submit' or 'approve'.", 400)
+        return _handle_esp_action(data, action)
 
     @app.route("/trigger_esp")
     @login_required
