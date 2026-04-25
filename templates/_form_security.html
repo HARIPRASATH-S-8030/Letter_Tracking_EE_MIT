@@ -1,6 +1,1 @@
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-{% if recaptcha_enabled %}
-  <div style="margin-top:16px;">
-    <div class="g-recaptcha" data-sitekey="{{ recaptcha_site_key }}"></div>
-  </div>
-{% endif %}

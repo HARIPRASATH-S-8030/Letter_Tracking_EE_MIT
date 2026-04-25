@@ -51,6 +51,10 @@
             <div id="adminPasswordHelp" class="placeholder-note" style="margin-top:8px;">Use at least 8 characters with uppercase, lowercase, number, and special character.</div>
             <div id="adminPasswordError" class="notice error" style="display:none;"></div>
 
+            {% if recaptcha_enabled %}
+              <div class="g-recaptcha" data-sitekey="{{ recaptcha_site_key }}" style="margin-top:18px;"></div>
+            {% endif %}
+
             <div style="margin-top:18px;">
               <button class="btn" type="submit">Create Staff Account</button>
             </div>
