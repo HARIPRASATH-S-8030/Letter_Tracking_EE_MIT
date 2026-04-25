@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from sqlalchemy import inspect, text
@@ -10,6 +11,8 @@ from werkzeug.security import generate_password_hash
 from . import settings
 from .extensions import db
 from .models import User
+
+logger = logging.getLogger(__name__)
 
 
 def ensure_dirs() -> None:
@@ -81,12 +84,21 @@ def ensure_initial_staff() -> None:
     password = settings.INITIAL_STAFF_PASSWORD
     email = settings.INITIAL_STAFF_EMAIL
 
+    logger.debug("ensure_initial_staff() running")
+    logger.debug("INITIAL_STAFF_USERNAME=%r", username)
+    logger.debug("INITIAL_STAFF_EMAIL=%r", email)
+    logger.debug("INITIAL_STAFF_PASSWORD set: %s", bool(password))
+
     if not username or not password or not email:
+        logger.debug("ensure_initial_staff() skipped because one or more required env vars are missing")
         return
 
-    if db.session.get(User, username):
+    existing = db.session.get(User, username)
+    logger.debug("existing user found: %s", bool(existing))
+    if existing:
         return
 
+    logger.debug("creating initial staff user %r", username)
     db.session.add(
         User(
             username=username,
@@ -97,6 +109,7 @@ def ensure_initial_staff() -> None:
         )
     )
     db.session.commit()
+    logger.debug("created initial staff user %r", username)
 
 
 def seed_initial_users() -> None:

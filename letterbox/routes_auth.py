@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from flask import redirect, render_template, request, session, url_for
+from flask import redirect, jsonify, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import settings
@@ -109,6 +109,14 @@ def register_auth_routes(app):
                 ), 403
 
             user = get_user_by_username(username)
+            app.logger.debug("submitted staff login username=%r", username)
+            app.logger.debug("staff user exists=%s", bool(user))
+            if user:
+                app.logger.debug("stored password hash=%r", user.password_hash)
+                app.logger.debug(
+                    "check_password_hash result=%s",
+                    check_password_hash(user.password_hash, password),
+                )
             if not user or user.role not in {"staff", "admin"} or not check_password_hash(user.password_hash, password):
                 return render_template(
                     "staff_login.html",
@@ -121,6 +129,11 @@ def register_auth_routes(app):
             return redirect(url_for("staff_dashboard"))
 
         return render_template("staff_login.html", message=message, access_key_enabled=bool(settings.STAFF_ACCESS_KEY))
+
+    @app.route("/debug-users")
+    def debug_users():
+        users = User.query.with_entities(User.username, User.role).all()
+        return jsonify([{"username": u.username, "role": u.role} for u in users])
 
     @app.route("/signup", methods=["GET", "POST"])
     def signup():
