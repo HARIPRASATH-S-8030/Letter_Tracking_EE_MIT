@@ -1,46 +1,89 @@
 # Letterbox Management System
 
-Production-ready Flask application for student/staff letter tracking with QR-based workflows, PostgreSQL support, environment-driven configuration, and Gunicorn deployment.
+A Flask-based web application for managing student letter requests and staff approvals using QR workflows, document generation, and support for PostgreSQL deployment.
 
-## What changed
+## Overview
 
-- Replaced the SQLite-only access pattern with Flask-SQLAlchemy models that work with both local SQLite and cloud PostgreSQL.
-- Added production config through environment variables: `SECRET_KEY`, `DATABASE_URL`, `APP_ENV`, `SESSION_COOKIE_SECURE`, `RECAPTCHA_*`, and more.
-- Hardened authentication with Werkzeug password hashing, strong password validation, CSRF protection, secure session cookies, optional Google reCAPTCHA, and role-aware access control.
-- Improved file handling so generated QR images and letter files use unique filenames and regenerate automatically if the host's filesystem is ephemeral.
-- Added Gunicorn deployment support with `Procfile`.
-- Added a one-off migration script to move existing SQLite data into PostgreSQL.
+This project provides a complete digital letterbox system for academic institutions. Students can submit formal letter requests, generate printable documents, and track progress. Staff and administrators can manage requests, scan QR codes, approve letters, and use ESP hardware integration for automated workflows.
 
-## Project structure
+## Key features
+
+- Student portal for creating, tracking, and downloading formal letters
+- Staff/admin dashboard for managing letter requests and workflows
+- QR code generation for every letter request
+- Downloadable letter documents in `DOCX` or fallback `TXT` format
+- Status workflow: `Created` → `Submitted` → `Pending` → `Approved`
+- Role-based access control with separate student and staff login pages
+- Optional student self-signup and institute email domain restriction
+- Optional Google reCAPTCHA support for public forms
+- Secure authentication with hashed passwords and CSRF protection
+- Email notifications for request creation and approval
+- Local email audit log in `sent_emails/`
+- Optional ESP integration for hardware device scanning and remote approval
+- Works with SQLite locally and PostgreSQL in production
+- Gunicorn-ready deployment with `Procfile`
+
+## Repository structure
 
 ```text
 .
-|-- app.py
-|-- Procfile
-|-- requirements.txt
-|-- .env.example
-|-- scripts/
-|   `-- migrate_sqlite_to_postgres.py
-|-- letterbox/
-|   |-- __init__.py
-|   |-- auth.py
-|   |-- database.py
-|   |-- extensions.py
-|   |-- models.py
-|   |-- routes_auth.py
-|   |-- routes_staff.py
-|   |-- routes_student.py
-|   |-- services.py
-|   `-- settings.py
-|-- templates/
-|   |-- _brand_banner.html
-|   `-- _form_security.html
-`-- static/
-    |-- generated_letters/
-    `-- qr_codes/
+├── app.py
+├── Procfile
+├── README.md
+├── requirements.txt
+├── .env.example
+├── scripts/
+│   └── migrate_sqlite_to_postgres.py
+├── letterbox/
+│   ├── __init__.py
+│   ├── auth.py
+│   ├── database.py
+│   ├── extensions.py
+│   ├── models.py
+│   ├── routes_auth.py
+│   ├── routes_staff.py
+│   ├── routes_student.py
+│   ├── services.py
+│   └── settings.py
+├── templates/
+│   ├── admin.html
+│   ├── form.html
+│   ├── login.html
+│   ├── staff_dashboard.html
+│   ├── student_dashboard.html
+│   ├── status.html
+│   ├── student_scan.html
+│   ├── scanners.html
+│   └── ...
+├── static/
+│   ├── generated_letters/
+│   ├── qr_codes/
+│   └── barcodes/
+├── sent_emails/
+└── docs/
 ```
 
-## Local setup
+## Technology stack
+
+- Python 3
+- Flask 3
+- Flask-SQLAlchemy
+- Flask-WTF
+- Gunicorn
+- PostgreSQL (recommended for production)
+- `python-docx` for DOCX generation
+- `qrcode` for QR code generation
+- Optional `pyzbar` and `Pillow` for barcode/QR decoding
+- SMTP email support via `smtplib`
+
+## Prerequisites
+
+- Python 3.11+ (recommended)
+- `pip`
+- PostgreSQL for production deployments (optional for local SQLite)
+- SMTP credentials for email notifications (optional)
+
+## Local development setup
 
 1. Create and activate a virtual environment:
 
@@ -55,83 +98,52 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-3. Copy the example environment file and set the values you need:
+3. Copy the example environment file:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-4. Set environment variables in PowerShell for the current session:
+4. Edit `.env` and configure your values.
 
-```powershell
-$env:SECRET_KEY="replace-with-a-long-random-secret"
-$env:DATABASE_URL="sqlite:///database.db"
-$env:INITIAL_STAFF_USERNAME="officeadmin"
-$env:INITIAL_STAFF_PASSWORD="ChangeThisImmediately123!"
-$env:INITIAL_STAFF_EMAIL="officeadmin@mit.edu"
-$env:ADMIN_ACCESS_KEY="set-a-separate-staff-key"
-```
-
-5. Start the app:
+5. Start the application:
 
 ```powershell
 python app.py
 ```
 
-6. Open `http://127.0.0.1:5000/login`.
+6. Visit:
 
-## Required production environment variables
+- Student login: `http://127.0.0.1:5000/login`
+- Staff login: `http://127.0.0.1:5000/staff/login`
 
-- `SECRET_KEY`
-- `DATABASE_URL`
+## Environment configuration
 
-## Recommended production environment variables
+Use `.env` or actual environment variables to configure the app. Important values include:
 
-- `APP_ENV=production`
-- `APP_BASE_URL=https://your-app.onrender.com`
-- `SESSION_COOKIE_SECURE=true`
-- `INSTITUTE_EMAIL_DOMAINS=mit.edu,mitindia.edu`
-- `INITIAL_STAFF_USERNAME`
-- `INITIAL_STAFF_PASSWORD`
-- `INITIAL_STAFF_EMAIL`
-- `ADMIN_ACCESS_KEY`
-- `RECAPTCHA_SITE_KEY`
-- `RECAPTCHA_SECRET_KEY`
+- `APP_ENV` — `development` or `production`
+- `SECRET_KEY` — used for session signing
+- `DATABASE_URL` — SQLite or PostgreSQL connection string
+- `APP_BASE_URL` — public base URL for generated links
+- `INSTITUTE_NAME`, `DEPARTMENT_TITLE`, `CAMPUS_TITLE`, `CITY_TITLE`
+- `LETTER_HEADING` — letter heading text
+- `INSTITUTE_EMAIL_DOMAINS` — comma-separated allowed domains for student signup
+- `ALLOW_STUDENT_SELF_SIGNUP` — `true` / `false`
+- `INITIAL_STAFF_USERNAME`, `INITIAL_STAFF_PASSWORD`, `INITIAL_STAFF_EMAIL`
+- `ADMIN_ACCESS_KEY` — optional staff login key
+- `RECAPTCHA_SITE_KEY`, `RECAPTCHA_SECRET_KEY`
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`
+- `ESP_TOKEN`, `ESP32_HOST`
 
-## SQLite to PostgreSQL migration
+### Recommended production settings
 
-The application can still run locally with SQLite, but cloud deployment should use PostgreSQL.
-
-1. Set `DATABASE_URL` to your PostgreSQL connection string.
-2. Run the migration script:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\migrate_sqlite_to_postgres.py
-```
-
-Optional source file override:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\migrate_sqlite_to_postgres.py database.db
-```
-
-## Render deployment
-
-Recommended Render settings:
-
-- Build Command: `pip install -r requirements.txt`
-- Start Command: `gunicorn app:app`
-- Environment: `Python 3`
-- Instance Type: `Free`
-
-Suggested environment variables:
-
-```text
+```env
 APP_ENV=production
 SECRET_KEY=replace-with-a-long-random-secret
-DATABASE_URL=postgresql://...
+DATABASE_URL=postgresql://user:pass@host:5432/dbname
+APP_BASE_URL=https://your-app.example.com
 SESSION_COOKIE_SECURE=true
-APP_BASE_URL=https://your-service.onrender.com
+SESSION_COOKIE_SAMESITE=Lax
 INSTITUTE_EMAIL_DOMAINS=mit.edu,mitindia.edu
 INITIAL_STAFF_USERNAME=officeadmin
 INITIAL_STAFF_PASSWORD=ChangeThisImmediately123!
@@ -139,21 +151,110 @@ INITIAL_STAFF_EMAIL=officeadmin@mit.edu
 ADMIN_ACCESS_KEY=replace-with-a-second-secret
 RECAPTCHA_SITE_KEY=...
 RECAPTCHA_SECRET_KEY=...
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=you@example.com
+SMTP_PASS=...
+ESP_TOKEN=optional-esp-token
+ESP32_HOST=esp-device.local
 ```
 
-## Important free-tier notes
+## Running in production
 
-- Generated files in `static/generated_letters` and `static/qr_codes` are recreated automatically if the host filesystem is reset.
-- Free hosting is fine for an academic project demo, but it is not equal to enterprise production hosting.
-- If you use Render Free:
-  - web services can spin down after inactivity,
-  - local filesystem changes are not durable across deploys/restarts,
-  - Free Render Postgres expires after 30 days,
-  - common SMTP ports are restricted on Free web services, so email sending may not work there.
+The application is ready for WSGI deployment. Example using Gunicorn:
 
-Useful docs:
+```powershell
+gunicorn app:app
+```
 
-- Render free tier: https://render.com/docs/free
-- Render first deploy: https://render.com/docs/your-first-deploy
-- Render environment variables: https://render.com/docs/configure-environment-variables
-- Render default environment variables: https://render.com/docs/environment-variables
+A `Procfile` is included for platforms like Render:
+
+```text
+web: gunicorn app:app
+```
+
+## Database options
+
+- Local development: default SQLite `database.db`
+- Production: PostgreSQL via `DATABASE_URL`
+
+### Migrate SQLite to PostgreSQL
+
+If you started with SQLite and want to move to PostgreSQL:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\migrate_sqlite_to_postgres.py
+```
+
+Or specify a source SQLite file:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\migrate_sqlite_to_postgres.py database.db
+```
+
+## Application capabilities
+
+### Student users
+
+- Register and login
+- Create letter requests with name, email, phone, subject, and description
+- Download generated letter documents
+- Track status through the workflow
+- Scan QR codes for status lookups
+
+### Staff and admin users
+
+- Login with staff credentials and optional admin key
+- View dashboard with letter counts by status
+- Review and change letter status to `Submitted`, `Pending`, or `Approved`
+- Generate new QR placeholders
+- Scan QR codes or barcode uploads
+- Trigger ESP actions for connected hardware
+- Manage staff accounts via admin panel
+
+### QR / hardware support
+
+- Every letter request generates a QR code linked to its status page
+- Optional ESP device integration via `/esp_submit`, `/esp_approve`, `/trigger_esp`, and `/esp_data`
+- Upload and decode scanned QR/barcode images when `Pillow` and `pyzbar` are available
+
+## Security and reliability
+
+- CSRF protection via Flask-WTF
+- Password hashing using Werkzeug
+- Role-aware access control for student, staff, and admin routes
+- Secure session cookies and configurable `SESSION_COOKIE_SECURE`
+- Optional reCAPTCHA on authentication and signup forms
+- Local email audit copies in `sent_emails/`
+- Structured stdout logging for cloud hosting
+
+## File generation and storage
+
+- QR codes are stored in `static/qr_codes/`
+- Generated letters are stored in `static/generated_letters/`
+- Barcode images are optionally stored in `static/barcodes/`
+- Generated artifacts are recreated automatically if missing in ephemeral storage
+
+## Deployment recommendations
+
+- Use PostgreSQL in production
+- Enable `SESSION_COOKIE_SECURE=true`
+- Set a strong `SECRET_KEY` and staff access key
+- Configure SMTP for real email notifications
+- Protect the app behind HTTPS
+
+## Troubleshooting
+
+- If email delivery fails, check `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, and `SMTP_PASS`
+- If reCAPTCHA is enabled, ensure both site and secret keys are valid
+- If QR generation fails, verify `qrcode` and `Pillow` are installed
+- If document downloads fallback to `.txt`, check `python-docx` availability
+
+## Notes
+
+- This repository is designed as an academic/demo system for campus letter workflows.
+- The code includes a developer helper route at `/debug-users` for user inspection.
+
+## License
+
+Use this repository under your preferred academic or open-source license.
