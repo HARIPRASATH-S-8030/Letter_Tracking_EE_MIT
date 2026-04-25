@@ -112,7 +112,7 @@ def register_auth_routes(app):
             if not user or user.role not in {"staff", "admin"} or not check_password_hash(user.password_hash, password):
                 return render_template(
                     "staff_login.html",
-                    error="Invalid staff credentials.",
+                    error="Invalid username or password.",
                     message=message,
                     access_key_enabled=bool(settings.STAFF_ACCESS_KEY),
                 ), 401

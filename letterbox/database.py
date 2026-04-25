@@ -75,6 +75,30 @@ def seed_user(username: str, password: str, role: str, name: str, email: str) ->
     db.session.commit()
 
 
+def ensure_initial_staff() -> None:
+    """Ensure the environment-defined staff account exists without creating duplicates."""
+    username = settings.INITIAL_STAFF_USERNAME
+    password = settings.INITIAL_STAFF_PASSWORD
+    email = settings.INITIAL_STAFF_EMAIL
+
+    if not username or not password or not email:
+        return
+
+    if db.session.get(User, username):
+        return
+
+    db.session.add(
+        User(
+            username=username,
+            password_hash=generate_password_hash(password),
+            role="staff",
+            name=settings.INITIAL_STAFF_NAME,
+            email=email,
+        )
+    )
+    db.session.commit()
+
+
 def seed_initial_users() -> None:
     """Seed admin and staff accounts when deployment settings provide them."""
     seed_user(
@@ -103,3 +127,4 @@ def init_db() -> None:
     db.create_all()
     ensure_legacy_compatible_schema()
     seed_initial_users()
+    ensure_initial_staff()

@@ -12,7 +12,7 @@ from flask_wtf.csrf import CSRFError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from . import settings
-from .database import init_db
+from .database import ensure_initial_staff, init_db
 from .extensions import csrf, db
 from .routes_auth import register_auth_routes
 from .routes_staff import register_staff_routes
@@ -143,6 +143,7 @@ def create_app() -> Flask:
 
     with app.app_context():
         init_db()
+        ensure_initial_staff()
 
     register_error_handlers(app)
     register_auth_routes(app)
