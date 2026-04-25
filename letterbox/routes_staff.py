@@ -230,7 +230,12 @@ def register_staff_routes(app):
         data = request.get_json(silent=True) or request.form
         action = (data.get("action") or request.args.get("action") or "").strip().lower() if hasattr(data, "get") else ""
         if action not in {"submit", "approve"}:
-            return jsonify_error("Invalid action. Use 'submit' or 'approve'.", 400)
+            action = infer_esp_action(data)
+        if action not in {"submit", "approve"}:
+            return jsonify_error(
+                "Invalid action. Use 'submit' or 'approve', or send a configured device_id.",
+                400,
+            )
         return _handle_esp_action(data, action)
 
     @app.route("/trigger_esp")

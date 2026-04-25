@@ -469,6 +469,25 @@ def esp_token_valid(data) -> bool:
     return token == expected
 
 
+def infer_esp_action(data) -> str | None:
+    """Infer submit/approve actions from explicit action or ESP device identity."""
+    action = ""
+    if hasattr(data, "get"):
+        action = str(data.get("action", "")).strip().lower()
+        if action in {"submit", "approve"}:
+            return action
+
+        device_id = str(data.get("device_id", "") or data.get("device", "") or data.get("node_id", "") or "").strip()
+        if device_id:
+            inbox = settings.ESP_INBOX_DEVICE_ID.lower()
+            outbox = settings.ESP_OUTBOX_DEVICE_ID.lower()
+            if inbox and device_id.lower() == inbox:
+                return "submit"
+            if outbox and device_id.lower() == outbox:
+                return "approve"
+    return None
+
+
 def fetch_esp_payload(esp_host: str):
     """Query the ESP endpoint and normalize the response for the staff scanner UI."""
     candidate_paths = ["/data", "/"]

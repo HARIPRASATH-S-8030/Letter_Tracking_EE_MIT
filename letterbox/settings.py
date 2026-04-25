@@ -92,6 +92,9 @@ RECAPTCHA_SITE_KEY = os.environ.get("RECAPTCHA_SITE_KEY", "").strip()
 RECAPTCHA_SECRET_KEY = os.environ.get("RECAPTCHA_SECRET_KEY", "").strip()
 RECAPTCHA_ENABLED = bool(RECAPTCHA_SITE_KEY and RECAPTCHA_SECRET_KEY)
 
+ESP_INBOX_DEVICE_ID = os.environ.get("ESP_INBOX_DEVICE_ID", "").strip()
+ESP_OUTBOX_DEVICE_ID = os.environ.get("ESP_OUTBOX_DEVICE_ID", "").strip()
+
 STATUS_CREATED = "Created"
 STATUS_SUBMITTED = "Submitted"
 STATUS_PENDING = "Pending"
