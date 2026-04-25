@@ -1,0 +1,16 @@
+<div class="brand-banner {% if compact_banner %}compact{% endif %}">
+  <div class="brand-logo-shell">
+    <img src="{{ anna_logo_url }}" alt="Anna University logo placeholder">
+  </div>
+  <div class="brand-copy">
+    <h1 class="dept">{{ department_title }}</h1>
+    <div class="line">{{ campus_title }}</div>
+    <div class="line">{{ city_title }}</div>
+    {% if portal_tag %}
+      <div class="portal-tag">{{ portal_tag }}</div>
+    {% endif %}
+  </div>
+  <div class="brand-logo-shell">
+    <img src="{{ mit_logo_url }}" alt="MIT Campus logo placeholder">
+  </div>
+</div>

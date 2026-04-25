@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ institute_name }} - Letter Status</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    {% set portal_tag = 'Letter Status' %}
+    {% include '_brand_banner.html' %}
+
+    <div class="card">
+      <h2 style="margin:0;">Current Letter Status</h2>
+      <div style="margin-top:14px;">
+        <span class="status-pill {{ letter.status }}">{{ letter.status }}</span>
+      </div>
+
+      <div class="responsive-two" style="margin-top:20px;">
+        <div class="card" style="background:#fffdf9;">
+          <h3 style="margin-top:0;">Student Details</h3>
+          <p><strong>Name:</strong> {{ letter.name }}</p>
+          <p><strong>Email:</strong> {{ letter.email }}</p>
+          <p><strong>Phone:</strong> {{ letter.phone }}</p>
+          <p><strong>Letter ID:</strong> {{ letter.app_id }}</p>
+        </div>
+        <div class="card" style="background:#fffdf9;">
+          <h3 style="margin-top:0;">Letter Details</h3>
+          <p><strong>Subject:</strong> {{ letter.subject }}</p>
+          <p><strong>Description:</strong></p>
+          <p class="muted">{{ letter.description }}</p>
+        </div>
+      </div>
+
+      <div class="meta-list" style="margin-top:18px;">
+        <div class="meta-item"><strong>Created At:</strong><br><span class="muted">{{ letter.created_at }}</span></div>
+        <div class="meta-item"><strong>Submitted At:</strong><br><span class="muted">{{ letter.submitted_at or '-' }}</span></div>
+        <div class="meta-item"><strong>Approved At:</strong><br><span class="muted">{{ letter.approved_at or '-' }}</span></div>
+        <div class="meta-item"><strong>Current Status:</strong><br><span class="muted">{{ letter.status }}</span></div>
+      </div>
+
+      <div class="stack-actions" style="margin-top:18px;">
+        {% if session.role == 'student' %}
+          <a class="btn btn-soft" href="/dashboard/student">Back to dashboard</a>
+        {% else %}
+          <a class="btn btn-soft" href="/dashboard/staff">Back to dashboard</a>
+        {% endif %}
+        <a class="btn" href="/download/{{ letter.app_id }}">Download Letter</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ institute_name }} - Create Letter</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    {% set portal_tag = 'New Letter' %}
+    {% include '_brand_banner.html' %}
+
+    <div class="card" style="max-width:920px;margin:0 auto;">
+      <h2 style="margin:0;">Create a Formal Letter</h2>
+      <p class="muted" style="margin-top:8px;">Write the purpose in simple words. Your exact description will be used as the letter body, so keep it concise enough to fit within one page.</p>
+
+      {% if errors %}
+        <div class="notice error">{{ errors|join(' ') }}</div>
+      {% endif %}
+
+      <form action="/save" method="post" style="margin-top:18px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="app_id" value="{{ app_id }}">
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <div>
+            <label for="name">Full Name</label>
+            <input class="input" id="name" name="name" type="text" value="{{ name or '' }}" required>
+          </div>
+          <div>
+            <label for="email">Institute Email</label>
+            <input class="input" id="email" name="email" type="email" value="{{ email or '' }}" readonly required>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;">
+          <div>
+            <label for="phone">Phone Number</label>
+            <input class="input" id="phone" name="phone" type="text" inputmode="tel" maxlength="20" value="{{ phone or '' }}" required>
+          </div>
+          <div>
+            <label for="subject">Subject</label>
+            <input class="input" id="subject" name="subject" type="text" value="{{ subject or '' }}" placeholder="On duty leave, permission, bonafide request..." required>
+          </div>
+        </div>
+
+        <div style="margin-top:14px;">
+          <label for="description">Description for the Letter</label>
+          <textarea class="input" id="description" name="description" rows="6" maxlength="500" placeholder="Write the exact body content you want in the letter. Keep it short so it fits within one page." required>{{ description or '' }}</textarea>
+          <div class="placeholder-note" style="margin-top:8px;">Maximum 500 characters.</div>
+        </div>
+
+        <div class="stack-actions" style="align-items:center;justify-content:space-between;margin-top:18px;">
+          <button class="btn" type="submit">Generate Letter</button>
+          <a href="/dashboard/student">Back to dashboard</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>

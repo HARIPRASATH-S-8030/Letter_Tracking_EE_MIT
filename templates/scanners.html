@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>{{ institute_name }} - Scanner Console</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .scanner-wrap{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+    .result{margin-top:12px;font-weight:700;min-height:24px}
+    .status-box{min-height:170px;padding:16px;border-radius:16px;border:1px solid rgba(122,74,44,.14);background:#fffdf9}
+    .btn-quiet{padding:10px 12px;border-radius:12px;border:1px solid rgba(122,74,44,.14);background:var(--skin-200);color:var(--coffee-800);cursor:pointer}
+    @media(max-width:900px){.scanner-wrap{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    {% set portal_tag = 'Scanner Console' %}
+    {% include '_brand_banner.html' %}
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
+        <div>
+          <h2 style="margin:0;">ESP32 Barcode Processing</h2>
+          <p class="muted" style="margin-top:8px;">This page uses only ESP32 trigger and polling. Webcam-based scanning has been removed.</p>
+        </div>
+        <a class="btn btn-soft" href="/dashboard/staff">Back to dashboard</a>
+      </div>
+
+      <div class="scanner-wrap" style="margin-top:20px;">
+        <div class="card" style="background:#fffdf9;">
+          <h3 style="margin-top:0;">Input Box ESP</h3>
+          <p class="muted">Triggers the inbox ESP32 and polls for the scanned code to mark the letter as <strong>Submitted</strong>.</p>
+          <input class="input" id="esp_inbox_host" placeholder="Inbox ESP host or IP">
+          <div class="status-box" style="margin-top:14px;">
+            <div class="muted">Inbox ESP status</div>
+            <div id="inbox_result" class="result">Waiting for ESP action.</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+            <button class="btn" id="inbox_trigger" type="button">Trigger ESP</button>
+            <button class="btn-quiet" id="inbox_poll" type="button">Start Polling</button>
+          </div>
+        </div>
+
+        <div class="card" style="background:#fffdf9;">
+          <h3 style="margin-top:0;">Output Box ESP</h3>
+          <p class="muted">Triggers the output ESP32 and polls for the scanned code to mark the letter as <strong>Approved</strong>.</p>
+          <input class="input" id="esp_staff_host" placeholder="Output ESP host or IP">
+          <div class="status-box" style="margin-top:14px;">
+            <div class="muted">Output ESP status</div>
+            <div id="staff_result" class="result">Waiting for ESP action.</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+            <button class="btn" id="staff_trigger" type="button">Trigger ESP</button>
+            <button class="btn-quiet" id="staff_poll" type="button">Start Polling</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
+
+    function extractAppId(text){
+      if(!text){ return null; }
+      const value = text.trim();
+      if(!value){ return null; }
+      try{
+        const url = new URL(value);
+        const id = url.searchParams.get("id");
+        if(id){ return id; }
+      }catch(error){}
+      if(value.includes("|")){
+        const parts = value.split("|").map(item => item.trim()).filter(Boolean);
+        const candidate = parts[parts.length - 1];
+        if(/^[A-Za-z0-9_-]{6,32}$/.test(candidate)){ return candidate; }
+      }
+      if(/^[A-Za-z0-9_-]{6,32}$/.test(value)){ return value; }
+      return null;
+    }
+
+    function getEspHost(which){
+      const input = document.getElementById(which === "staff" ? "esp_staff_host" : "esp_inbox_host");
+      const key = which === "staff" ? "esp_host_staff" : "esp_host_inbox";
+      const value = input.value.trim();
+      if(value){
+        localStorage.setItem(key, value);
+        return value;
+      }
+      return localStorage.getItem(key) || "";
+    }
+
+    function setResult(element, message, ok){
+      element.textContent = message;
+      element.style.color = ok ? "var(--success)" : "var(--danger)";
+    }
+
+    async function markSubmitted(id, element){
+      element.textContent = "Marking as Submitted...";
+      const response = await fetch("/submit_scan?id=" + encodeURIComponent(id), {
+        method: "POST",
+        headers: {"X-Requested-With": "XMLHttpRequest", "X-CSRFToken": csrfToken}
+      });
+      const data = await response.json().catch(() => ({}));
+      setResult(element, data.message || (response.ok ? "Marked as Submitted." : "Submit failed."), response.ok);
+    }
+
+    async function markApproved(id, element){
+      element.textContent = "Marking as Approved...";
+      const response = await fetch("/approve?id=" + encodeURIComponent(id), {
+        method: "POST",
+        headers: {"X-Requested-With": "XMLHttpRequest", "X-CSRFToken": csrfToken}
+      });
+      const data = await response.json().catch(() => ({}));
+      setResult(element, data.message || (response.ok ? "Marked as Approved." : "Approval failed."), response.ok);
+    }
+
+    async function triggerEsp(action, which, resultElement){
+      resultElement.textContent = "Triggering ESP device...";
+      let url = "/trigger_esp?action=" + encodeURIComponent(action);
+      const host = getEspHost(which);
+      if(host){
+        url += "&host=" + encodeURIComponent(host);
+      }
+      const response = await fetch(url);
+      const data = await response.json().catch(() => ({}));
+      setResult(resultElement, data.message || (response.ok ? "ESP device triggered." : "ESP trigger failed."), response.ok);
+    }
+
+    async function pollEsp(which, callback, resultElement){
+      let url = "/esp_data";
+      const host = getEspHost(which);
+      if(host){
+        url += "?host=" + encodeURIComponent(host);
+      }
+      const response = await fetch(url);
+      const data = await response.json().catch(() => ({}));
+      const appId = extractAppId(data.app_id || data.barcode || data.code || "");
+      if(!response.ok || !appId){
+        return;
+      }
+      callback(appId, resultElement);
+    }
+
+    try{
+      const inboxSaved = localStorage.getItem("esp_host_inbox");
+      const staffSaved = localStorage.getItem("esp_host_staff");
+      if(inboxSaved){ document.getElementById("esp_inbox_host").value = inboxSaved; }
+      if(staffSaved){ document.getElementById("esp_staff_host").value = staffSaved; }
+    }catch(error){}
+
+    document.getElementById("inbox_trigger").addEventListener("click", () => triggerEsp("submit", "inbox", document.getElementById("inbox_result")));
+    document.getElementById("staff_trigger").addEventListener("click", () => triggerEsp("approve", "staff", document.getElementById("staff_result")));
+
+    let inboxPollId = null;
+    let staffPollId = null;
+    let lastInboxScan = "";
+    let lastStaffScan = "";
+
+    document.getElementById("inbox_poll").addEventListener("click", function(){
+      const result = document.getElementById("inbox_result");
+      if(inboxPollId){
+        clearInterval(inboxPollId);
+        inboxPollId = null;
+        this.textContent = "Start Polling";
+        result.textContent = "Polling stopped.";
+        return;
+      }
+      this.textContent = "Stop Polling";
+      result.textContent = "Polling inbox ESP for scans...";
+      inboxPollId = setInterval(async () => {
+        const old = lastInboxScan;
+        let url = "/esp_data";
+        const host = getEspHost("inbox");
+        if(host){ url += "?host=" + encodeURIComponent(host); }
+        const response = await fetch(url);
+        const data = await response.json().catch(() => ({}));
+        const appId = extractAppId(data.app_id || data.barcode || data.code || "");
+        if(response.ok && appId && appId !== old){
+          lastInboxScan = appId;
+          markSubmitted(appId, result);
+        }
+      }, 1200);
+    });
+
+    document.getElementById("staff_poll").addEventListener("click", function(){
+      const result = document.getElementById("staff_result");
+      if(staffPollId){
+        clearInterval(staffPollId);
+        staffPollId = null;
+        this.textContent = "Start Polling";
+        result.textContent = "Polling stopped.";
+        return;
+      }
+      this.textContent = "Stop Polling";
+      result.textContent = "Polling output ESP for scans...";
+      staffPollId = setInterval(async () => {
+        const old = lastStaffScan;
+        let url = "/esp_data";
+        const host = getEspHost("staff");
+        if(host){ url += "?host=" + encodeURIComponent(host); }
+        const response = await fetch(url);
+        const data = await response.json().catch(() => ({}));
+        const appId = extractAppId(data.app_id || data.barcode || data.code || "");
+        if(response.ok && appId && appId !== old){
+          lastStaffScan = appId;
+          markApproved(appId, result);
+        }
+      }, 1200);
+    });
+  </script>
+</body>
+</html>

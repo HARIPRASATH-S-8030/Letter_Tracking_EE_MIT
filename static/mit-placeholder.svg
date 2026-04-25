@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="MIT Campus placeholder logo">
+  <rect width="120" height="120" rx="24" fill="#fbf4ec"/>
+  <rect x="28" y="28" width="64" height="40" rx="10" fill="#a86c49" opacity="0.18"/>
+  <path d="M34 74h52" stroke="#7a4a2c" stroke-width="6" stroke-linecap="round"/>
+  <path d="M40 67V44l12 12 12-12 12 12 12-12v23" fill="none" stroke="#5b3822" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="60" y="102" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#5b3822">MIT</text>
+</svg>

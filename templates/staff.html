@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+        <title>Staff Scanner</title>
+        <meta charset="utf-8">
+        <meta name="csrf-token" content="{{ csrf_token() }}">
+        <script src="https://unpkg.com/html5-qrcode"></script>
+        <link rel="stylesheet" href="/static/style.css">
+        <style>.scanner-wrap{display:flex;gap:18px;align-items:flex-start}</style>
+</head>
+<body>
+
+<div class="container">
+    <div class="grid">
+        <aside class="sidebar">
+            <div class="card">
+                <div style="font-weight:600">Outbox Staff Panel</div>
+                <div class="nav" style="margin-top:8px">
+                    <a class="side-link" href="/admin">Dashboard</a>
+                    <a class="side-link" href="/staff">Staff Scanner</a>
+                    <a class="side-link" href="/logout">Logout</a>
+                </div>
+            </div>
+        </aside>
+
+        <main>
+            <div class="card">
+                <h3>Scan Signed Letter</h3>
+                <div class="scanner-wrap">
+                    <div id="reader" style="width:360px"></div>
+                    <div id="result" style="margin-top:12px;font-weight:bold;"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+    </div>
+
+<script>
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+async function onScanSuccess(decodedText) {
+        const resultEl = document.getElementById('result');
+        try {
+                let url = new URL(decodedText);
+                let id = url.searchParams.get("id");
+
+                resultEl.textContent = 'Processing...';
+
+                const resp = await fetch('/approve?id=' + encodeURIComponent(id), { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrfToken } });
+                const data = await resp.json().catch(() => ({}));
+
+                if (resp.ok) {
+                        resultEl.style.color = 'green';
+                        resultEl.textContent = data.message || 'Approved & Email Sent!';
+                } else {
+                        resultEl.style.color = 'red';
+                        resultEl.textContent = data.message || 'Error processing approval';
+                }
+
+                try { scanner.clear(); } catch(e) {}
+
+        } catch (e) {
+                document.getElementById('result').style.color = 'red';
+                document.getElementById('result').textContent = 'Invalid QR or error: ' + e;
+        }
+}
+
+let scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 280 });
+scanner.render(onScanSuccess);
+</script>
+
+</body>
+</html>

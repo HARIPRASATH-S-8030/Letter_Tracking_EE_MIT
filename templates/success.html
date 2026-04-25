@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ institute_name }} - Message</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    {% set portal_tag = 'System Message' %}
+    {% include '_brand_banner.html' %}
+
+    <div class="card" style="max-width:760px;margin:0 auto;">
+      <h2 style="margin:0;">System Message</h2>
+      <p style="margin-top:14px;">{{ message }}</p>
+      {% if app_id %}
+        <p class="muted">Reference ID: {{ app_id }}</p>
+      {% endif %}
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:18px;">
+        {% if session.role in ['staff', 'admin'] %}
+          <a class="btn btn-soft" href="/dashboard/staff">Back to dashboard</a>
+        {% elif session.role == 'student' %}
+          <a class="btn btn-soft" href="/dashboard/student">Back to dashboard</a>
+        {% else %}
+          <a class="btn btn-soft" href="/login">Go to login</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</body>
+</html>

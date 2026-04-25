@@ -1,0 +1,8 @@
+<h2>HOD Sign Letter</h2>
+
+<form action="/sign" method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Application ID:</label><br>
+    <input type="text" name="app_id" placeholder="Enter app id"><br><br>
+    <button type="submit">Sign</button>
+</form>

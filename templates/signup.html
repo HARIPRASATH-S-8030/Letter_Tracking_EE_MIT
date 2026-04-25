@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ institute_name }} - Student Registration</title>
+  <link rel="stylesheet" href="/static/style.css">
+  {% if recaptcha_enabled %}
+    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
+  {% endif %}
+</head>
+<body>
+  <div class="auth-shell">
+    <div class="auth-card" style="width:min(620px,100%);">
+      {% set portal_tag = 'Student Registration' %}
+      {% set compact_banner = true %}
+      {% include '_brand_banner.html' %}
+
+      <p class="muted" style="margin-top:18px;">
+        Register using your institute email address.
+        {% if allowed_domains %}
+          Allowed domains: {{ allowed_domains|join(', ') }}.
+        {% endif %}
+      </p>
+
+      {% if error %}
+        <div class="notice error">{{ error }}</div>
+      {% endif %}
+
+      {% if allow_signup %}
+        <form method="post" action="/signup" style="margin-top:18px;">
+          {% include '_form_security.html' %}
+          <label for="register_number">Register Number</label>
+          <input class="input" id="register_number" name="register_number" type="text" value="{{ register_number or '' }}" required>
+
+          <label for="name" style="display:block;margin-top:14px;">Full Name</label>
+          <input class="input" id="name" name="name" type="text" value="{{ name or '' }}" required>
+
+          <label for="email" style="display:block;margin-top:14px;">Institute Email</label>
+          <input class="input" id="email" name="email" type="email" value="{{ email or '' }}" placeholder="student@institution.edu" required>
+
+          <label for="password" style="display:block;margin-top:14px;">Password</label>
+          <input class="input" id="password" name="password" type="password" placeholder="Minimum 8 characters" required>
+          <div id="passwordHelp" class="placeholder-note" style="margin-top:8px;">Use at least 8 characters with uppercase, lowercase, number, and special character.</div>
+          <div id="passwordClientError" class="notice error" style="display:none;"></div>
+
+          <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:18px;">
+            <button class="btn" type="submit">Create Student Account</button>
+            <a href="/login">Back to login</a>
+          </div>
+        </form>
+      {% else %}
+        <p class="muted" style="margin-top:18px;">Student registration is currently disabled.</p>
+        <p style="margin-top:14px;"><a href="/login">Back to login</a></p>
+      {% endif %}
+    </div>
+  </div>
+  <script>
+    const signupForm = document.querySelector("form[action='/signup']");
+    const signupPassword = document.getElementById("password");
+    const signupPasswordError = document.getElementById("passwordClientError");
+
+    function signupPasswordIssues(value){
+      const issues = [];
+      if(value.length < 8){ issues.push("at least 8 characters"); }
+      if(!/[A-Z]/.test(value)){ issues.push("one uppercase letter"); }
+      if(!/[a-z]/.test(value)){ issues.push("one lowercase letter"); }
+      if(!/[0-9]/.test(value)){ issues.push("one number"); }
+      if(!/[^A-Za-z0-9]/.test(value)){ issues.push("one special character"); }
+      return issues;
+    }
+
+    if(signupPassword){
+      signupPassword.addEventListener("paste", function(event){
+        event.preventDefault();
+      });
+
+      signupPassword.addEventListener("input", function(){
+        const issues = signupPasswordIssues(signupPassword.value);
+        if(issues.length){
+          signupPassword.setCustomValidity("Password requirements are not met.");
+          signupPasswordError.style.display = "block";
+          signupPasswordError.textContent = "Password needs " + issues.join(", ") + ".";
+        } else {
+          signupPassword.setCustomValidity("");
+          signupPasswordError.style.display = "none";
+          signupPasswordError.textContent = "";
+        }
+      });
+    }
+
+    if(signupForm){
+      signupForm.addEventListener("submit", function(event){
+        const issues = signupPasswordIssues(signupPassword.value);
+        if(issues.length){
+          event.preventDefault();
+          signupPasswordError.style.display = "block";
+          signupPasswordError.textContent = "Password needs " + issues.join(", ") + ".";
+          signupPassword.focus();
+        }
+      });
+    }
+  </script>
+</body>
+</html>

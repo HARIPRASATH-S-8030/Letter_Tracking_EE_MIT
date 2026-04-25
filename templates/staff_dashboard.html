@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ institute_name }} - Staff Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    {% set portal_tag = 'Staff Dashboard' %}
+    {% include '_brand_banner.html' %}
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+        <div>
+          <h2 style="margin:0;">Letter Workflow Console</h2>
+          <p class="muted" style="margin-top:8px;">Review letters, update status, and process approved documents for output dispatch.</p>
+        </div>
+        <div class="stack-actions">
+          <a class="btn" href="/scanners">Open Scanners</a>
+          <a class="btn btn-soft" href="/admin">Staff Management</a>
+          <a class="btn btn-soft" href="/logout">Logout</a>
+        </div>
+      </div>
+
+      <div class="dashboard-grid" style="margin-top:20px;">
+        <div class="stat-box">
+          <span class="muted">Created</span>
+          <strong>{{ counts.Created or 0 }}</strong>
+        </div>
+        <div class="stat-box">
+          <span class="muted">Submitted</span>
+          <strong>{{ counts.Submitted or 0 }}</strong>
+        </div>
+        <div class="stat-box">
+          <span class="muted">Pending</span>
+          <strong>{{ counts.Pending or 0 }}</strong>
+        </div>
+        <div class="stat-box">
+          <span class="muted">Approved</span>
+          <strong>{{ counts.Approved or 0 }}</strong>
+        </div>
+      </div>
+
+      <h2 style="margin-top:28px;">All Letters</h2>
+      {% if letters %}
+        <div class="table-wrap" style="margin-top:12px;">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Student</th>
+                <th>Subject</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Submitted</th>
+                <th>Approved</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for letter in letters %}
+                <tr>
+                  <td>{{ letter.app_id }}</td>
+                  <td><strong>{{ letter.name }}</strong><br><span class="muted">{{ letter.email }}</span></td>
+                  <td>{{ letter.subject }}</td>
+                  <td><span class="status-pill {{ letter.status }}">{{ letter.status }}</span></td>
+                  <td class="muted">{{ letter.created_at }}</td>
+                  <td class="muted">{{ letter.submitted_at or '-' }}</td>
+                  <td class="muted">{{ letter.approved_at or '-' }}</td>
+                  <td>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                      <form method="post" action="/letters/{{ letter.app_id }}/review">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-soft" type="submit">Mark Pending</button>
+                      </form>
+                      <form method="post" action="/approve">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="id" value="{{ letter.app_id }}">
+                        <button class="btn" type="submit">Approve</button>
+                      </form>
+                      <a href="/download/{{ letter.app_id }}" style="align-self:center;">Download</a>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="muted" style="margin-top:14px;">No letters are available yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ institute_name }} - Student Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    {% set portal_tag = 'Student Dashboard' %}
+    {% include '_brand_banner.html' %}
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+        <div>
+          <h2 style="margin:0;">Welcome, {{ name }}</h2>
+          <p class="muted" style="margin-top:8px;">Create a formal letter, download it, submit it physically, and track every stage of approval.</p>
+        </div>
+        <a class="btn btn-soft" href="/logout">Logout</a>
+      </div>
+
+      {% if submitted %}
+        <div class="notice info" style="margin-top:18px;">Letter <strong>{{ submitted }}</strong> was created successfully. Download it below, print it, and submit it to the input box.</div>
+      {% endif %}
+
+      <div class="stack-actions" style="margin-top:18px;">
+        <a class="btn" href="/submit">Create New Letter</a>
+        <a class="btn btn-soft" href="/student_scan">Track Letter Status</a>
+      </div>
+
+      <h2 style="margin-top:28px;">Your Letters</h2>
+      {% if letters %}
+        <div class="table-wrap" style="margin-top:12px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Letter ID</th>
+                <th>Subject</th>
+                <th>Created</th>
+                <th>Submitted</th>
+                <th>Approved</th>
+                <th>Status</th>
+                <th>Download</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for letter in letters %}
+                <tr>
+                  <td>{{ letter.app_id }}</td>
+                  <td>{{ letter.subject }}</td>
+                  <td class="muted">{{ letter.created_at }}</td>
+                  <td class="muted">{{ letter.submitted_at or '-' }}</td>
+                  <td class="muted">{{ letter.approved_at or '-' }}</td>
+                  <td><span class="status-pill {{ letter.status }}">{{ letter.status }}</span></td>
+                  <td><a href="/download/{{ letter.app_id }}">Download</a></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="muted" style="margin-top:14px;">No letters created yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>
