@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo
 
 import qrcode
 import requests as _requests
@@ -55,27 +56,36 @@ except Exception:
     HAVE_BARCODE = False
 
 
+IST_ZONE = ZoneInfo("Asia/Kolkata")
+
+
 def utc_now() -> datetime:
     """Return a timezone-aware datetime for audit fields."""
     return datetime.now(timezone.utc)
 
 
-def serialize_datetime(value: datetime | None) -> str | None:
-    """Convert datetimes into stable ISO strings for templates and JSON."""
+def to_ist(value: datetime | None) -> datetime | None:
+    """Convert stored UTC datetimes into Asia/Kolkata timezone."""
     if value is None:
         return None
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+    return value.astimezone(IST_ZONE)
+
+
+def serialize_datetime(value: datetime | None) -> str | None:
+    """Convert datetimes into stable IST ISO strings for templates and JSON."""
+    if value is None:
+        return None
+    value = to_ist(value)
+    return value.replace(microsecond=0).isoformat()
 
 
 def format_letter_date(value: datetime | None) -> str:
     """Format stored timestamps for the formal letter header."""
     if value is None:
-        return datetime.now().strftime("%d %B %Y")
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).strftime("%d %B %Y")
+        return datetime.now(IST_ZONE).strftime("%d %B %Y")
+    return to_ist(value).strftime("%d %B %Y")
 
 
 def sentence_case(text: str) -> str:

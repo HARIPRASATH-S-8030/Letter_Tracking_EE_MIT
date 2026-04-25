@@ -34,9 +34,9 @@
       </div>
 
       <div class="meta-list" style="margin-top:18px;">
-        <div class="meta-item"><strong>Created At:</strong><br><span class="muted">{{ letter.created_at }}</span></div>
-        <div class="meta-item"><strong>Submitted At:</strong><br><span class="muted">{{ letter.submitted_at or '-' }}</span></div>
-        <div class="meta-item"><strong>Approved At:</strong><br><span class="muted">{{ letter.approved_at or '-' }}</span></div>
+        <div class="meta-item"><strong>Created At:</strong><br><span class="muted">{{ letter.created_at | ist_datetime }}</span></div>
+        <div class="meta-item"><strong>Submitted At:</strong><br><span class="muted">{{ letter.submitted_at | ist_datetime if letter.submitted_at else '-' }}</span></div>
+        <div class="meta-item"><strong>Approved At:</strong><br><span class="muted">{{ letter.approved_at | ist_datetime if letter.approved_at else '-' }}</span></div>
         <div class="meta-item"><strong>Current Status:</strong><br><span class="muted">{{ letter.status }}</span></div>
       </div>
 

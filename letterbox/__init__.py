@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, render_template, request, session, url_for
 from flask_wtf.csrf import CSRFError
@@ -100,6 +101,23 @@ def create_app() -> Flask:
     configure_logging(app)
     db.init_app(app)
     csrf.init_app(app)
+
+    IST_ZONE = ZoneInfo("Asia/Kolkata")
+
+    def format_datetime_ist(value):
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            try:
+                value = datetime.fromisoformat(value)
+            except ValueError:
+                return value
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(IST_ZONE).strftime("%d %b %Y %I:%M %p %Z")
+
+    app.jinja_env.filters["ist_datetime"] = format_datetime_ist
+    app.jinja_env.filters["localtime"] = format_datetime_ist
 
     @app.context_processor
     def inject_branding():

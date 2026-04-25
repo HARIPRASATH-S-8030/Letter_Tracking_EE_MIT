@@ -66,9 +66,9 @@
                   <td><strong>{{ letter.name }}</strong><br><span class="muted">{{ letter.email }}</span></td>
                   <td>{{ letter.subject }}</td>
                   <td><span class="status-pill {{ letter.status }}">{{ letter.status }}</span></td>
-                  <td class="muted">{{ letter.created_at }}</td>
-                  <td class="muted">{{ letter.submitted_at or '-' }}</td>
-                  <td class="muted">{{ letter.approved_at or '-' }}</td>
+                  <td class="muted">{{ letter.created_at | ist_datetime }}</td>
+                  <td class="muted">{{ letter.submitted_at | ist_datetime if letter.submitted_at else '-' }}</td>
+                  <td class="muted">{{ letter.approved_at | ist_datetime if letter.approved_at else '-' }}</td>
                   <td>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
                       <form method="post" action="/letters/{{ letter.app_id }}/review">

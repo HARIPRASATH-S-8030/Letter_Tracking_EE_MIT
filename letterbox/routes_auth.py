@@ -42,8 +42,17 @@ def register_auth_routes(app):
             password = request.form.get("password", "").strip()
             captcha_ok, captcha_error = verify_recaptcha(request.form.get("g-recaptcha-response"))
 
-            if not username or not password:
-                return render_template("login.html", error="Register number and password are required.", message=message), 400
+            missing = []
+            if not username:
+                missing.append("Register number")
+            if not password:
+                missing.append("Password")
+            if missing:
+                return render_template(
+                    "login.html",
+                    error="{} is required.".format(" and ".join(missing)),
+                    message=message,
+                ), 400
             if not captcha_ok:
                 return render_template("login.html", error=captcha_error, message=message), 400
 
@@ -51,7 +60,7 @@ def register_auth_routes(app):
             if not user or not check_password_hash(user.password_hash, password):
                 return render_template("login.html", error="Invalid credentials.", message=message), 401
             if user.role != "student":
-                return render_template("login.html", error="Use the separate staff login page for staff accounts.", message=message), 403
+                return render_template("login.html", error="Use the staff login page for staff accounts.", message=message), 403
 
             login_user(user)
             return redirect(url_for("student_dashboard"))
@@ -70,10 +79,17 @@ def register_auth_routes(app):
             access_key = request.form.get("access_key", "").strip()
             captcha_ok, captcha_error = verify_recaptcha(request.form.get("g-recaptcha-response"))
 
-            if not username or not password or (settings.STAFF_ACCESS_KEY and not access_key):
+            missing = []
+            if not username:
+                missing.append("Username")
+            if not password:
+                missing.append("Password")
+            if settings.STAFF_ACCESS_KEY and not access_key:
+                missing.append("Admin key")
+            if missing:
                 return render_template(
                     "staff_login.html",
-                    error="Username, password, and admin key are required.",
+                    error="{} is required.".format(" and ".join(missing)),
                     message=message,
                     access_key_enabled=bool(settings.STAFF_ACCESS_KEY),
                 ), 400
