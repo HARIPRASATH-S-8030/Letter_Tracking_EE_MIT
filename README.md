@@ -19,9 +19,11 @@ This project provides a complete digital letterbox system for academic instituti
 - Optional student self-signup and institute email domain restriction
 - Optional Google reCAPTCHA support for public forms
 - Secure authentication with hashed passwords and CSRF protection
-- Email notifications for request creation and approval
+- SMTP email notifications for request creation and status changes
+- Optional Twilio SMS notifications for request creation and status changes
 - Local email audit log in `sent_emails/`
 - Optional ESP integration for hardware device scanning and remote approval
+- Local Ollama AI assistance for standardized letter subjects and bodies
 - Works with SQLite locally and PostgreSQL in production
 - Gunicorn-ready deployment with `Procfile`
 
@@ -77,6 +79,7 @@ This project provides a complete digital letterbox system for academic instituti
 - `qrcode` for QR code generation
 - Optional `pyzbar` and `Pillow` for barcode/QR decoding
 - SMTP email support via `smtplib`
+- Ollama local model support via its HTTP API
 
 ## Prerequisites
 
@@ -134,8 +137,23 @@ Use `.env` or actual environment variables to configure the app. Important value
 - `INITIAL_STAFF_USERNAME`, `INITIAL_STAFF_PASSWORD`, `INITIAL_STAFF_EMAIL`
 - `ADMIN_ACCESS_KEY` — optional staff login key
 - `RECAPTCHA_SITE_KEY`, `RECAPTCHA_SECRET_KEY`
+- `MAIL_SERVER`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_USE_TLS`, `MAIL_USE_SSL`, `MAIL_DEFAULT_SENDER`
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`
+- `SMS_ENABLED`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`
 - `ESP_TOKEN`, `ESP32_HOST`
+- `AI_OLLAMA_URL`, `AI_MODEL`, `AI_TIMEOUT`, `AI_MAX_BODY_LENGTH`
+- `SESSION_IDLE_MINUTES` — automatic logout after inactivity; defaults to 5 minutes
+
+### Local AI letter generation
+
+Install Ollama and download the local model:
+
+```powershell
+ollama pull qwen2.5:1.5b-instruct
+ollama serve
+```
+
+Student descriptions are sent only to the local Ollama service at `AI_OLLAMA_URL`. The application stores the original description separately from the generated subject and body, validates the structured response, and then places only the validated variable content into the existing DOCX/TXT template. If Ollama is unavailable or output validation fails, no letter record is created.
 
 ### Recommended production settings
 
@@ -153,10 +171,23 @@ INITIAL_STAFF_EMAIL=officeadmin@mit.edu
 ADMIN_ACCESS_KEY=replace-with-a-second-secret
 RECAPTCHA_SITE_KEY=...
 RECAPTCHA_SECRET_KEY=...
+MAIL_SERVER=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=you@example.com
+MAIL_PASSWORD=...
+MAIL_USE_TLS=true
+MAIL_USE_SSL=false
+MAIL_DEFAULT_SENDER=you@example.com
+
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=you@example.com
 SMTP_PASS=...
+SMS_ENABLED=false
+SMS_DEFAULT_COUNTRY_CODE=+91
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+TWILIO_FROM_NUMBER=+1xxxxxxxxxx
 ESP_TOKEN=optional-esp-token
 ESP32_HOST=esp-device.local
 ```
@@ -211,14 +242,13 @@ Or specify a source SQLite file:
 - Review and change letter status to `Submitted`, `Pending`, or `Approved`
 - Generate new QR placeholders
 - Scan QR codes or barcode uploads
-- Trigger ESP actions for connected hardware
 - Manage staff accounts via admin panel
 
 ### QR / hardware support
 
 - Every letter request generates a QR code linked to its status page
-- Optional ESP device integration via `/esp_submit`, `/esp_approve`, `/esp_action`, `/trigger_esp`, and `/esp_data`
-- ESP32 devices can POST status updates directly to Render using `/esp_submit`, `/esp_approve`, or `/esp_action`
+- ESP device integration via `/esp_submit`, `/esp_approve`, or `/esp_action`
+- ESP32 and ESP8266 devices can POST status updates directly to Render using `/esp_submit`, `/esp_approve`, or `/esp_action`. JSON, form-encoded, and query-string payloads are supported; the scanned value may be sent as `id`, `app_id`, `code`, `barcode`, or `qr`.
 - Use `X-ESP-Token` header or `token` body field when `ESP_TOKEN` is configured
 - Example device payload:
 
@@ -230,7 +260,6 @@ Or specify a source SQLite file:
 }
 ```
 
-- Upload and decode scanned QR/barcode images when `Pillow` and `pyzbar` are available
 
 ## Security and reliability
 
@@ -259,7 +288,10 @@ Or specify a source SQLite file:
 
 ## Troubleshooting
 
-- If email delivery fails, check `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, and `SMTP_PASS`
+- If email delivery fails, configure a real SMTP account. Gmail requires an App Password (not the normal account password); use `MAIL_USE_TLS=true` with port 587, or `MAIL_USE_SSL=true` with port 465.
+- The `sent_emails/` directory is an audit copy only; it is not proof that SMTP delivery succeeded.
+- For SMS, configure a Twilio account and an E.164 sender number. Indian 10-digit student numbers are normalized with `SMS_DEFAULT_COUNTRY_CODE` (default `+91`).
+- See `docs/esp_https.md` for ESP32 and ESP8266 HTTPS POST examples.
 - If reCAPTCHA is enabled, ensure both site and secret keys are valid
 - If QR generation fails, verify `qrcode` and `Pillow` are installed
 - If document downloads fallback to `.txt`, check `python-docx` availability

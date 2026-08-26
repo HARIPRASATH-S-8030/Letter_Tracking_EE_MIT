@@ -9,11 +9,12 @@
     <script src="https://www.google.com/recaptcha/api.js" async defer></script>
   {% endif %}
 </head>
-<body>
+<body class="login-page">
   <div class="auth-shell">
     <div class="auth-card">
       {% set portal_tag = 'Student Portal' %}
       {% set compact_banner = true %}
+      {% set login_page = true %}
       {% include '_brand_banner.html' %}
 
       <p class="muted" style="margin:18px 0 0;">Students sign in using register number and password to create letters, download the formatted document, and track approval status.</p>
@@ -25,21 +26,26 @@
         <div class="notice error">{{ error }}</div>
       {% endif %}
 
-      <form method="post" action="/login" style="margin-top:18px;">
+      <form class="login-form" method="post" action="/login">
         {% include '_form_security.html' %}
         <label for="username">Register Number</label>
         <input class="input" id="username" name="username" type="text" placeholder="Enter register number" required>
 
-        <label for="password" style="display:block;margin-top:14px;">Password</label>
+        <label for="password">Password</label>
         <input class="input" id="password" name="password" type="password" placeholder="Enter password" required>
 
         {% if recaptcha_enabled %}
-          <div class="g-recaptcha" data-sitekey="{{ recaptcha_site_key }}" style="margin-top:18px;"></div>
+          <div class="recaptcha-wrapper">
+            <div class="g-recaptcha" data-sitekey="{{ recaptcha_site_key }}"></div>
+          </div>
         {% endif %}
 
-        <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:18px;">
+        <div class="form-actions">
           <button class="btn" type="submit">Student Sign In</button>
           <a href="/signup">Create student account</a>
+        </div>
+        <div style="margin-top:14px; text-align:center;">
+          <a href="/forgot-password">Forgot Password?</a>
         </div>
       </form>
 

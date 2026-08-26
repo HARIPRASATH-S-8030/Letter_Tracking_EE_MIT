@@ -17,11 +17,22 @@
           <h2 style="margin:0;">Welcome, {{ name }}</h2>
           <p class="muted" style="margin-top:8px;">Create a formal letter, download it, submit it physically, and track every stage of approval.</p>
         </div>
-        <a class="btn btn-soft" href="/logout">Logout</a>
+        <div class="stack-actions">
+          <a class="btn btn-soft" href="/profile">Profile</a>
+          <a class="btn btn-soft" href="/logout">Logout</a>
+        </div>
       </div>
 
       {% if submitted %}
-        <div class="notice info" style="margin-top:18px;">Letter <strong>{{ submitted }}</strong> was created successfully. Download it below, print it, and submit it to the input box.</div>
+        {% if request.args.get('email_status') == 'failed' %}
+          <div class="notice info" style="margin-top:18px;">Letter <strong>{{ submitted }}</strong> was created successfully. Download it below, print it, and submit it to the input box. Email delivery failed; check the SMTP settings and provider log.</div>
+        {% elif request.args.get('email_status') == 'not_configured' and request.args.get('sms_status') != 'sent' %}
+          <div class="notice info" style="margin-top:18px;">Letter <strong>{{ submitted }}</strong> was created successfully. Download it below, print it, and submit it to the input box. Notifications are not configured yet.</div>
+        {% elif request.args.get('sms_status') == 'sent' %}
+          <div class="notice info" style="margin-top:18px;">Letter <strong>{{ submitted }}</strong> was created successfully. An SMS notification was sent. Download it below, print it, and submit it to the input box.</div>
+        {% else %}
+          <div class="notice info" style="margin-top:18px;">Letter <strong>{{ submitted }}</strong> was created successfully. An email notification was sent. Download it below, print it, and submit it to the input box.</div>
+        {% endif %}
       {% endif %}
 
       <div class="stack-actions" style="margin-top:18px;">

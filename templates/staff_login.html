@@ -9,11 +9,12 @@
     <script src="https://www.google.com/recaptcha/api.js" async defer></script>
   {% endif %}
 </head>
-<body>
+<body class="login-page">
   <div class="auth-shell">
     <div class="auth-card">
       {% set portal_tag = 'Staff Portal' %}
       {% set compact_banner = true %}
+      {% set login_page = true %}
       {% include '_brand_banner.html' %}
 
       <p class="muted" style="margin-top:18px;">Staff access is separate from the student portal. Enter your staff credentials{% if access_key_enabled %} and the admin key{% endif %}.</p>
@@ -25,30 +26,31 @@
         <div class="notice error">{{ error }}</div>
       {% endif %}
 
-      <form method="post" action="/staff/login" style="margin-top:18px;">
+      <form class="login-form" method="post" action="/staff/login">
         {% include '_form_security.html' %}
         <label for="username">Staff Username</label>
         <input class="input" id="username" name="username" type="text" required>
 
-        <label for="password" style="display:block;margin-top:14px;">Password</label>
+        <label for="password">Password</label>
         <input class="input" id="password" name="password" type="password" required>
 
-        <label for="access_key" style="display:block;margin-top:14px;">Admin Key</label>
+        <label for="access_key">Admin Key</label>
         <input class="input" id="access_key" name="access_key" type="password" {% if access_key_enabled %}required{% endif %}>
         {% if not access_key_enabled %}
-          <div class="placeholder-note" style="margin-top:8px;">Admin key protection is not configured yet on this deployment.</div>
+          <div class="placeholder-note">Admin key protection is not configured yet on this deployment.</div>
         {% endif %}
 
         {% if recaptcha_enabled %}
-          <div class="g-recaptcha" data-sitekey="{{ recaptcha_site_key }}" style="margin-top:18px;"></div>
+          <div class="recaptcha-wrapper">
+            <div class="g-recaptcha" data-sitekey="{{ recaptcha_site_key }}"></div>
+          </div>
         {% endif %}
-        {% if not access_key_enabled %}
-          <div class="placeholder-note" style="margin-top:8px;">Admin key protection is not configured yet on this deployment.</div>
-        {% endif %}
-
-        <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:18px;">
+        <div class="form-actions">
           <button class="btn" type="submit">Staff Sign In</button>
           <a href="/login">Back to student login</a>
+        </div>
+        <div style="margin-top:14px; text-align:center;">
+          <a href="/forgot-password">Forgot Password?</a>
         </div>
       </form>
     </div>

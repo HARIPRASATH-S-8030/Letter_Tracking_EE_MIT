@@ -1,0 +1,17 @@
+From: shari4030mit@gmail.com
+To: student@example.com
+Subject: Letter Status Updated - ABCDE123
+
+Dear Student One,
+
+Your letter status has been updated.
+
+Letter ID: ABCDE123
+Subject: Leave Application
+Previous Status: Created
+New Status: Submitted
+Updated Time (IST): 2026-08-26T18:43:28+05:30
+Remarks / Comments: Test letter
+Track your letter: http://127.0.0.1:5000/submit?id=ABCDE123
+
+If you did not request this change, you can ignore this email.

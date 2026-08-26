@@ -93,14 +93,21 @@ def main() -> int:
             letter.name = row["name"] or ""
             letter.email = (row["email"] or "").strip().lower()
             letter.phone = row["phone"] or ""
+            letter.generation_mode = row["generation_mode"] if "generation_mode" in letter_columns else "manual"
+            letter.content_source = row["content_source"] if "content_source" in letter_columns else "manual"
+            letter.request_type = row["request_type"] if "request_type" in letter_columns else "Other"
             letter.subject = row["subject"] or "Request"
             letter.description = row["description"] or ""
+            letter.original_description = row["original_description"] if "original_description" in letter_columns else letter.description
+            letter.generated_subject = row["generated_subject"] if "generated_subject" in letter_columns else None
+            letter.generated_body = row["generated_body"] if "generated_body" in letter_columns else None
             letter.status = row["status"] or "Created"
             letter.created_at = parse_timestamp(row["created_at"]) or datetime.now(timezone.utc)
             letter.submitted_at = parse_timestamp(row["submitted_at"]) if "submitted_at" in letter_columns else None
             letter.approved_at = parse_timestamp(row["approved_at"]) if "approved_at" in letter_columns else None
             letter.generated_file_name = row["generated_file_name"] if "generated_file_name" in letter_columns else None
             letter.qr_file_name = row["qr_file_name"] if "qr_file_name" in letter_columns else None
+            letter.signature_file_name = row["signature_file_name"] if "signature_file_name" in letter_columns else None
             letters_total += 1
 
         if "scans" in {row["name"] for row in source.execute("SELECT name FROM sqlite_master WHERE type='table'")}:

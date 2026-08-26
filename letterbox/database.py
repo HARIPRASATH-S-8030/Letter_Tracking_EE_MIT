@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 def ensure_dirs() -> None:
     """Create runtime output folders if they do not already exist."""
-    for path in (settings.QR_DIR, settings.BARCODE_DIR, settings.GEN_DIR, settings.SENT_DIR):
+    for path in (settings.QR_DIR, settings.BARCODE_DIR, settings.GEN_DIR, settings.SIGNATURE_DIR, settings.SENT_DIR):
         os.makedirs(path, exist_ok=True)
 
 
@@ -37,12 +37,30 @@ def ensure_legacy_compatible_schema() -> None:
             db.session.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP"))
         if not column_exists("users", "email"):
             db.session.execute(text("ALTER TABLE users ADD COLUMN email VARCHAR(255) NOT NULL DEFAULT ''"))
+        if not column_exists("users", "phone"):
+            db.session.execute(text("ALTER TABLE users ADD COLUMN phone VARCHAR(30)"))
+        if not column_exists("users", "signature_file_name"):
+            db.session.execute(text("ALTER TABLE users ADD COLUMN signature_file_name VARCHAR(255)"))
 
     if "letters" in table_names:
         if not column_exists("letters", "generated_file_name"):
             db.session.execute(text("ALTER TABLE letters ADD COLUMN generated_file_name VARCHAR(255)"))
         if not column_exists("letters", "qr_file_name"):
             db.session.execute(text("ALTER TABLE letters ADD COLUMN qr_file_name VARCHAR(255)"))
+        if not column_exists("letters", "signature_file_name"):
+            db.session.execute(text("ALTER TABLE letters ADD COLUMN signature_file_name VARCHAR(255)"))
+        if not column_exists("letters", "generation_mode"):
+            db.session.execute(text("ALTER TABLE letters ADD COLUMN generation_mode VARCHAR(10) NOT NULL DEFAULT 'manual'"))
+        if not column_exists("letters", "content_source"):
+            db.session.execute(text("ALTER TABLE letters ADD COLUMN content_source VARCHAR(20) NOT NULL DEFAULT 'manual'"))
+        if not column_exists("letters", "request_type"):
+            db.session.execute(text("ALTER TABLE letters ADD COLUMN request_type VARCHAR(40) NOT NULL DEFAULT 'Other'"))
+        if not column_exists("letters", "original_description"):
+            db.session.execute(text("ALTER TABLE letters ADD COLUMN original_description TEXT"))
+        if not column_exists("letters", "generated_subject"):
+            db.session.execute(text("ALTER TABLE letters ADD COLUMN generated_subject VARCHAR(255)"))
+        if not column_exists("letters", "generated_body"):
+            db.session.execute(text("ALTER TABLE letters ADD COLUMN generated_body TEXT"))
 
     if "scans" in table_names and not column_exists("scans", "created_at"):
         try:

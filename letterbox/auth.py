@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from functools import wraps
 
 from flask import abort, redirect, session, url_for
@@ -95,6 +96,7 @@ def login_user(user: User, *, is_staff_key_verified: bool = False) -> None:
     session["name"] = user.name
     session["email"] = normalize_email(user.email)
     session["staff_key_ok"] = bool(is_staff_key_verified)
+    session["last_activity"] = time.time()
     session.permanent = True
 
 

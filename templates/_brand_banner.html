@@ -3,7 +3,11 @@
     <img src="{{ anna_logo_url }}" alt="Anna University logo placeholder">
   </div>
   <div class="brand-copy">
-    <h1 class="dept">{{ department_title }}</h1>
+    {% if login_page %}
+      <h1 class="dept">Department<br>of<br>Electronics Engineering</h1>
+    {% else %}
+      <h1 class="dept">{{ department_title }}</h1>
+    {% endif %}
     <div class="line">{{ campus_title }}</div>
     <div class="line">{{ city_title }}</div>
     {% if portal_tag %}
@@ -14,3 +18,21 @@
     <img src="{{ mit_logo_url }}" alt="MIT Campus logo placeholder">
   </div>
 </div>
+{% if session.get('username') %}
+<script>
+  (() => {
+    const idleLimit = 5 * 60 * 1000;
+    let idleTimer;
+    const resetIdleTimer = () => {
+      window.clearTimeout(idleTimer);
+      idleTimer = window.setTimeout(() => {
+        window.location.assign("/logout?reason=idle");
+      }, idleLimit);
+    };
+    ["load", "mousemove", "mousedown", "keydown", "scroll", "touchstart"].forEach((eventName) => {
+      window.addEventListener(eventName, resetIdleTimer, { passive: true });
+    });
+    resetIdleTimer();
+  })();
+</script>
+{% endif %}

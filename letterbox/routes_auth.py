@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
-from flask import redirect, jsonify, render_template, request, session, url_for
+import os
+import time
+from datetime import datetime, timezone
+
+from flask import current_app, redirect, jsonify, render_template, request, session, url_for
+from sqlalchemy import func
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
 from . import settings
 from .auth import (
     email_exists,
     get_user_by_username,
+    is_valid_phone,
     is_valid_register_number,
     login_user,
     normalize_email,
@@ -18,8 +25,8 @@ from .auth import (
     verify_staff_access_key,
 )
 from .extensions import db
-from .models import User
-from .services import is_allowed_institute_email, verify_recaptcha
+from .models import PasswordResetToken, User
+from .services import build_password_reset_link, is_allowed_institute_email, save_signature_image, send_email, verify_recaptcha
 
 
 def register_auth_routes(app):
@@ -109,14 +116,6 @@ def register_auth_routes(app):
                 ), 403
 
             user = get_user_by_username(username)
-            app.logger.debug("submitted staff login username=%r", username)
-            app.logger.debug("staff user exists=%s", bool(user))
-            if user:
-                app.logger.debug("stored password hash=%r", user.password_hash)
-                app.logger.debug(
-                    "check_password_hash result=%s",
-                    check_password_hash(user.password_hash, password),
-                )
             if not user or user.role not in {"staff", "admin"} or not check_password_hash(user.password_hash, password):
                 return render_template(
                     "staff_login.html",
@@ -129,6 +128,96 @@ def register_auth_routes(app):
             return redirect(url_for("staff_dashboard"))
 
         return render_template("staff_login.html", message=message, access_key_enabled=bool(settings.STAFF_ACCESS_KEY))
+
+    def _password_reset_check_limit(key: str, max_requests: int = 5, window_seconds: int = 3600) -> bool:
+        bucket = current_app.config.setdefault("password_reset_limits", {})
+        now = time.time()
+        records = [stamp for stamp in bucket.get(key, []) if now - stamp < window_seconds]
+        if len(records) >= max_requests:
+            bucket[key] = records
+            return False
+        bucket[key] = records + [now]
+        return True
+
+    @app.route("/forgot-password", methods=["GET", "POST"])
+    def forgot_password():
+        if session.get("username"):
+            return redirect(url_for("index"))
+
+        if request.method == "POST":
+            email = normalize_email(request.form.get("email", ""))
+            captcha_ok, captcha_error = verify_recaptcha(request.form.get("g-recaptcha-response"))
+            if not captcha_ok:
+                return render_template("forgot_password.html", error=captcha_error), 400
+            if not email or "@" not in email:
+                return render_template("forgot_password.html", error="Please enter a valid email address."), 400
+
+            limit_key = f"{request.remote_addr or 'unknown'}:{email}"
+            if not _password_reset_check_limit(limit_key):
+                return render_template(
+                    "forgot_password.html",
+                    success="If an account exists for the information provided, a password reset link has been sent.",
+                )
+
+            user = User.query.filter(func.lower(User.email) == email).first()
+            if user:
+                for token in PasswordResetToken.query.filter_by(user_id=user.username, used=False).filter(
+                    PasswordResetToken.expires_at > datetime.now(timezone.utc)
+                ).all():
+                    token.used = True
+                reset_record = PasswordResetToken.create_for_user(user)
+                reset_url = build_password_reset_link(reset_record.raw_token)
+                send_email(
+                    user.email,
+                    (
+                        f"Hello {user.name},\n\n"
+                        "We received a request to reset your password.\n\n"
+                        f"Reset your password: {reset_url}\n\n"
+                        "This link expires in 30 minutes. If you did not request this, you can ignore this email."
+                    ),
+                    subject="Password Reset Request",
+                    ref=user.username,
+                )
+
+            return render_template(
+                "forgot_password.html",
+                success="If an account exists for the information provided, a password reset link has been sent.",
+            )
+
+        return render_template("forgot_password.html")
+
+    @app.route("/reset-password/<token>", methods=["GET", "POST"])
+    def reset_password(token):
+        if session.get("username"):
+            return redirect(url_for("index"))
+
+        reset_record = PasswordResetToken.lookup_by_raw_token(token)
+        if not reset_record:
+            return render_template("reset_password.html", valid=False, error="This password reset link is invalid or has expired."), 400
+
+        user = db.session.get(User, reset_record.user_id)
+        if not user:
+            return render_template("reset_password.html", valid=False, error="This password reset link is invalid or has expired."), 400
+
+        if request.method == "POST":
+            password = request.form.get("password", "").strip()
+            confirm = request.form.get("confirm_password", "").strip()
+            errors = []
+            if len(password) < 8:
+                errors.append("Password must be at least 8 characters long.")
+            if password != confirm:
+                errors.append("Passwords do not match.")
+            if errors:
+                return render_template("reset_password.html", valid=True, error=" ".join(errors), token=token), 400
+
+            if not PasswordResetToken.consume_for_user(user, token):
+                return render_template("reset_password.html", valid=False, error="This password reset link has already been used or expired."), 400
+
+            user.password_hash = generate_password_hash(password)
+            db.session.commit()
+            return redirect(url_for("login", message="Your password has been reset successfully. Please sign in."))
+
+        return render_template("reset_password.html", valid=True, token=token)
 
     @app.route("/debug-users")
     def debug_users():
@@ -198,6 +287,66 @@ def register_auth_routes(app):
             return redirect(url_for("login", message="Account created. Please sign in with your student credentials."))
 
         return render_template("signup.html", allow_signup=True, allowed_domains=sorted(settings.ALLOWED_EMAIL_DOMAINS))
+
+    @app.route("/profile", methods=["GET", "POST"])
+    def profile():
+        if not session.get("username"):
+            return redirect(url_for("login"))
+
+        user = db.session.get(User, session["username"])
+        if not user:
+            session.clear()
+            return redirect(url_for("login"))
+
+        errors = []
+        message = ""
+        if request.method == "POST":
+            name = request.form.get("name", "").strip()
+            email = normalize_email(request.form.get("email", ""))
+            phone = request.form.get("phone", "").strip()
+            current_password = request.form.get("current_password", "")
+            new_password = request.form.get("new_password", "")
+            signature = request.files.get("signature")
+
+            if len(name) < 2 or len(name) > 120:
+                errors.append("Name must be between 2 and 120 characters.")
+            if "@" not in email or len(email) > 255:
+                errors.append("Enter a valid email address.")
+            elif not is_allowed_institute_email(email):
+                errors.append("Use a valid institute email address.")
+            if phone and not is_valid_phone(phone):
+                errors.append("Enter a valid phone number.")
+            other_user = User.query.filter(func.lower(User.email) == email, User.username != user.username).first()
+            if other_user:
+                errors.append("That email address is already in use.")
+            if new_password:
+                if not current_password or not check_password_hash(user.password_hash, current_password):
+                    errors.append("Enter your current password to change it.")
+                errors.extend(validate_password_strength(new_password))
+            if signature and signature.filename:
+                signature.stream.seek(0, 2)
+                signature_size = signature.stream.tell()
+                signature.stream.seek(0)
+                extension = os.path.splitext(secure_filename(signature.filename))[1].lower()
+                if signature_size > settings.MAX_SIGNATURE_SIZE:
+                    errors.append("Signature image must be 2 MB or smaller.")
+                if extension not in {".png", ".jpg", ".jpeg"}:
+                    errors.append("Signature must be a PNG, JPG, or JPEG image.")
+
+            if not errors:
+                user.name = name
+                user.email = email
+                user.phone = phone or None
+                if new_password:
+                    user.password_hash = generate_password_hash(new_password)
+                if signature and signature.filename:
+                    user.signature_file_name = save_signature_image(signature, user.username)
+                db.session.commit()
+                session["name"] = user.name
+                session["email"] = user.email
+                message = "Profile updated successfully."
+
+        return render_template("profile.html", user=user, errors=errors, message=message)
 
     @app.route("/logout")
     def logout():

@@ -13,50 +13,110 @@
 
     <div class="card" style="max-width:920px;margin:0 auto;">
       <h2 style="margin:0;">Create a Formal Letter</h2>
-      <p class="muted" style="margin-top:8px;">Write the purpose in simple words. Your exact description will be used as the letter body, so keep it concise enough to fit within one page.</p>
+      <p class="muted" style="margin-top:8px;">Choose the request type and describe the facts in simple words. The system will prepare the formal subject and body.</p>
 
       {% if errors %}
         <div class="notice error">{{ errors|join(' ') }}</div>
       {% endif %}
 
-      <form action="/save" method="post" style="margin-top:18px;">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="app_id" value="{{ app_id }}">
-
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-          <div>
-            <label for="name">Full Name</label>
-            <input class="input" id="name" name="name" type="text" value="{{ name or '' }}" required>
-          </div>
-          <div>
-            <label for="email">Institute Email</label>
-            <input class="input" id="email" name="email" type="email" value="{{ email or '' }}" readonly required>
-          </div>
+      {% if preview %}
+        <div class="notice info" style="margin-top:18px;">
+          <form action="/save" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="generation_mode" value="ai">
+            <input type="hidden" name="preview_token" value="{{ preview_token }}">
+            <label for="preview_subject">Generated Subject</label>
+            <input class="input" id="preview_subject" name="preview_subject" value="{{ preview.subject }}" maxlength="120" required>
+            <label for="preview_body" style="margin-top:12px;">Generated Body</label>
+            <textarea class="input" id="preview_body" name="preview_body" rows="7" maxlength="1000" required>{{ preview.body }}</textarea>
+            <p class="placeholder-note" style="margin-top:8px;">Review the generated content. Changes are recorded as student-edited content.</p>
+            <div class="stack-actions" style="margin-top:14px;">
+              <button class="btn btn-soft" type="submit" name="action" value="regenerate">Regenerate</button>
+              <button class="btn" type="submit" name="action" value="accept">Accept and Generate Letter</button>
+              <a href="/dashboard/student">Cancel</a>
+            </div>
+          </form>
         </div>
+      {% else %}
+        <form action="/save" method="post" enctype="multipart/form-data" style="margin-top:18px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="app_id" value="{{ app_id }}">
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;">
-          <div>
-            <label for="phone">Phone Number</label>
-            <input class="input" id="phone" name="phone" type="text" inputmode="tel" maxlength="20" value="{{ phone or '' }}" required>
+          <fieldset style="border:0;padding:0;margin:0 0 18px;">
+            <legend>Generation Mode</legend>
+            <label><input type="radio" name="generation_mode" value="manual" {% if generation_mode != 'ai' %}checked{% endif %}> Manual Mode</label>
+            <label style="margin-left:18px;"><input type="radio" name="generation_mode" value="ai" {% if generation_mode == 'ai' %}checked{% endif %}> AI Autofill Mode</label>
+          </fieldset>
+
+          <div class="grid-two">
+            <div>
+              <label for="name">Full Name</label>
+              <input class="input" id="name" name="name" type="text" value="{{ name or '' }}" required>
+            </div>
+            <div>
+              <label for="email">Institute Email</label>
+              <input class="input" id="email" name="email" type="email" value="{{ email or '' }}" readonly required>
+            </div>
           </div>
-          <div>
+
+          <div class="grid-two" style="margin-top:14px;">
+            <div>
+              <label for="phone">Phone Number</label>
+              <input class="input" id="phone" name="phone" type="text" inputmode="tel" maxlength="20" value="{{ phone or '' }}" required>
+            </div>
+            <div id="request-type-field" style="display:none;">
+              <label for="request_type">Request Type</label>
+              <select class="input" id="request_type" name="request_type">
+                {% for option in request_types %}
+                  <option value="{{ option }}" {% if request_type == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div id="manual-fields" style="margin-top:14px;">
             <label for="subject">Subject</label>
-            <input class="input" id="subject" name="subject" type="text" value="{{ subject or '' }}" placeholder="On duty leave, permission, bonafide request..." required>
+            <input class="input" id="subject" name="subject" type="text" value="{{ subject or '' }}" maxlength="255">
+            <label for="description" style="margin-top:14px;">Description / Letter Body</label>
+            <textarea class="input" id="description" name="description" rows="6" maxlength="500">{{ description or '' }}</textarea>
           </div>
-        </div>
 
-        <div style="margin-top:14px;">
-          <label for="description">Description for the Letter</label>
-          <textarea class="input" id="description" name="description" rows="6" maxlength="500" placeholder="Write the exact body content you want in the letter. Keep it short so it fits within one page." required>{{ description or '' }}</textarea>
-          <div class="placeholder-note" style="margin-top:8px;">Maximum 500 characters.</div>
-        </div>
+          <div id="ai-fields" style="display:none;margin-top:14px;">
+            <label for="ai_description">Short Description</label>
+            <textarea class="input" id="ai_description" name="ai_description" rows="6" maxlength="500">{{ ai_description or '' }}</textarea>
+            <div class="placeholder-note" style="margin-top:8px;">Enter only factual details. The local model will prepare the subject and formal body.</div>
+          </div>
 
-        <div class="stack-actions" style="align-items:center;justify-content:space-between;margin-top:18px;">
-          <button class="btn" type="submit">Generate Letter</button>
-          <a href="/dashboard/student">Back to dashboard</a>
-        </div>
-      </form>
+          <div style="margin-top:14px;">
+            <label for="signature">Student Signature (optional)</label>
+            <input class="input" id="signature" name="signature" type="file" accept="image/png,image/jpeg">
+            <div class="placeholder-note" style="margin-top:8px;">PNG or JPG only, maximum 2 MB. It will be placed below "Yours sincerely".</div>
+          </div>
+
+          <div class="stack-actions" style="align-items:center;justify-content:space-between;margin-top:18px;">
+            <button class="btn" type="submit">Generate Letter</button>
+            <a href="/dashboard/student">Back to dashboard</a>
+          </div>
+        </form>
+      {% endif %}
     </div>
   </div>
+  <script>
+    const modeInputs = document.querySelectorAll('input[name="generation_mode"]');
+    const manualFields = document.getElementById("manual-fields");
+    const aiFields = document.getElementById("ai-fields");
+    const requestTypeField = document.getElementById("request-type-field");
+    function updateMode() {
+      const ai = document.querySelector('input[name="generation_mode"]:checked')?.value === "ai";
+      if (manualFields) manualFields.style.display = ai ? "none" : "block";
+      if (requestTypeField) requestTypeField.style.display = ai ? "block" : "none";
+      if (aiFields) aiFields.style.display = ai ? "block" : "none";
+      document.getElementById("subject")?.toggleAttribute("required", !ai);
+      document.getElementById("description")?.toggleAttribute("required", !ai);
+      document.getElementById("ai_description")?.toggleAttribute("required", ai);
+    }
+    modeInputs.forEach((input) => input.addEventListener("change", updateMode));
+    updateMode();
+  </script>
 </body>
 </html>

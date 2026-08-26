@@ -33,6 +33,10 @@
         <div class="notice info">{{ message }}</div>
       {% endif %}
 
+      <div class="notice info">
+        Notification delivery: email is <strong>{{ 'configured' if email_notifications_configured else 'not configured' }}</strong>; SMS is <strong>{{ 'configured' if sms_notifications_configured else 'not configured' }}</strong>.
+      </div>
+
       <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,360px);gap:20px;margin-top:20px;">
         <div>
           <form method="post" action="/admin/staff/create">

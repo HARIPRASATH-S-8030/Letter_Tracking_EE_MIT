@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import smtplib
@@ -27,25 +28,11 @@ try:
     from docx import Document
     from docx.enum.table import WD_TABLE_ALIGNMENT
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.shared import Inches, Pt
+    from docx.shared import Inches, Pt, RGBColor
 
     HAVE_DOCX = True
 except Exception:
     HAVE_DOCX = False
-
-try:
-    from PIL import Image
-
-    HAVE_PIL = True
-except Exception:
-    HAVE_PIL = False
-
-try:
-    from pyzbar.pyzbar import decode as zbar_decode
-
-    HAVE_PYZBAR = True
-except Exception:
-    HAVE_PYZBAR = False
 
 try:
     from barcode import Code128
@@ -54,6 +41,13 @@ try:
     HAVE_BARCODE = True
 except Exception:
     HAVE_BARCODE = False
+
+try:
+    from PIL import Image
+
+    HAVE_PIL = True
+except Exception:
+    HAVE_PIL = False
 
 
 IST_ZONE = ZoneInfo("Asia/Kolkata")
@@ -108,8 +102,8 @@ def normalize_letter_description(text: str) -> str:
 
 def build_formal_letter_content(letter: Letter) -> dict[str, object]:
     """Build the fixed-format formal letter content used for DOCX and TXT export."""
-    subject = sentence_case(letter.subject) or "Request"
-    body_text = normalize_letter_description(letter.description)
+    subject = sentence_case(letter.generated_subject or letter.subject) or "Request"
+    body_text = normalize_letter_description(letter.generated_body or letter.description)
     return {
         "heading_line": settings.LETTER_HEADING,
         "from_lines": [
@@ -125,8 +119,14 @@ def build_formal_letter_content(letter: Letter) -> dict[str, object]:
             "Anna University",
             settings.CITY_TITLE,
         ],
-        "subject_line": f"{subject} - Reg.",
+        "subject_line": subject if subject.lower().endswith("-reg.") else f"{subject} - Reg.",
         "body_text": body_text,
+        "hod_verification": letter.status == settings.STATUS_APPROVED,
+        "signature_path": (
+            os.path.join(settings.SIGNATURE_DIR, letter.signature_file_name)
+            if letter.signature_file_name
+            else ""
+        ),
     }
 
 
@@ -137,8 +137,12 @@ def serialize_letter(letter: Letter) -> dict[str, str | None]:
         "name": letter.name,
         "email": letter.email,
         "phone": letter.phone,
+        "request_type": letter.request_type,
         "subject": letter.subject,
         "description": letter.description,
+        "original_description": letter.original_description,
+        "generated_subject": letter.generated_subject,
+        "generated_body": letter.generated_body,
         "status": letter.status,
         "created_at": serialize_datetime(letter.created_at),
         "submitted_at": serialize_datetime(letter.submitted_at),
@@ -241,6 +245,12 @@ def update_letter_status(app_id: str, new_status: str) -> Letter | None:
         if new_status == settings.STATUS_APPROVED and not letter.approved_at:
             letter.approved_at = timestamp
         db.session.commit()
+        notification_status = notify_letter_status_change(letter, current_status, new_status, timestamp)
+        # This is intentionally transient: delivery is reported to the request that
+        # triggered it, while the letter workflow remains available if a provider is down.
+        letter.notification_status = notification_status
+        letter.email_status = notification_status["email"]
+        letter.sms_status = notification_status["sms"]
 
     return letter
 
@@ -339,9 +349,23 @@ def generate_letter_file(letter: Letter) -> str:
 
         doc.add_paragraph()
         doc.add_paragraph("Yours sincerely,")
-        doc.add_paragraph("")
-        doc.add_paragraph("")
+        if letter_content["signature_path"] and os.path.exists(letter_content["signature_path"]):
+            signature_paragraph = doc.add_paragraph()
+            signature_paragraph.paragraph_format.space_after = Pt(0)
+            signature_paragraph.add_run().add_picture(letter_content["signature_path"], width=Inches(1.35))
+        else:
+            doc.add_paragraph("")
         doc.add_paragraph(letter.name)
+
+        if letter_content["hod_verification"]:
+            verification = doc.add_paragraph()
+            verification.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            check = verification.add_run("\u2713 ")
+            check.bold = True
+            check.font.color.rgb = RGBColor(0x16, 0x8A, 0x45)
+            verified_text = verification.add_run("Digitally verified by the HoD")
+            verified_text.bold = True
+            verified_text.font.color.rgb = RGBColor(0x16, 0x8A, 0x45)
 
         doc.save(output_path)
     else:
@@ -361,15 +385,38 @@ def generate_letter_file(letter: Letter) -> str:
             handle.write(f"Sub : {letter_content['subject_line']}\n")
             handle.write(f"{letter_content['body_text']}\n\n")
             handle.write("Yours sincerely,\n")
-            handle.write("\n\n")
+            if letter_content["signature_path"] and os.path.exists(letter_content["signature_path"]):
+                handle.write("[Student signature attached]\n")
+            else:
+                handle.write("\n")
             handle.write(f"{letter.name}\n")
+            if letter_content["hod_verification"]:
+                handle.write("\n\u2713 Digitally verified by the HoD\n")
 
     db.session.commit()
     return output_path
 
 
+def save_signature_image(file_storage, app_id: str) -> str:
+    """Validate and normalize a student signature image as a compact PNG."""
+    if not HAVE_PIL:
+        raise ValueError("Image support is unavailable on the server.")
+
+    ensure_dirs()
+    file_storage.stream.seek(0)
+    image = Image.open(file_storage.stream)
+    image.verify()
+    file_storage.stream.seek(0)
+    image = Image.open(file_storage.stream).convert("RGBA")
+    file_name = f"{app_id}_{uuid.uuid4().hex[:10]}.png"
+    image.save(os.path.join(settings.SIGNATURE_DIR, file_name), format="PNG", optimize=True)
+    return file_name
+
+
 def ensure_letter_file(letter: Letter) -> str:
     """Return a valid generated letter file path, recreating it when storage is ephemeral."""
+    if letter.status == settings.STATUS_APPROVED:
+        return generate_letter_file(letter)
     if letter.generated_file_name:
         current_path = os.path.join(settings.GEN_DIR, letter.generated_file_name)
         if os.path.exists(current_path):
@@ -377,20 +424,201 @@ def ensure_letter_file(letter: Letter) -> str:
     return generate_letter_file(letter)
 
 
-def send_email(to_email: str, message: str, subject: str = "Notification", ref: str | None = None) -> None:
+def hash_reset_token(token: str) -> str:
+    """Hash a reset token before storing it or comparing it to database values."""
+    value = (token or "").strip()
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def build_password_reset_link(raw_token: str) -> str:
+    """Build a reset URL from the configured application base URL to avoid untrusted host values."""
+    base_url = (settings.APP_BASE_URL or os.environ.get("APP_BASE_URL", "")).strip().rstrip("/")
+    token_value = (raw_token or "").strip()
+    if not base_url:
+        return f"/reset-password/{token_value}"
+    return f"{base_url}/reset-password/{token_value}"
+
+
+def email_is_configured() -> bool:
+    """Return whether the minimum SMTP settings for delivery are present."""
+    return bool(settings.MAIL_SERVER and settings.MAIL_USERNAME and settings.MAIL_PASSWORD and settings.MAIL_DEFAULT_SENDER)
+
+
+def sms_is_configured() -> bool:
+    """Return whether optional Twilio SMS delivery is enabled and configured."""
+    return bool(
+        settings.SMS_ENABLED
+        and settings.TWILIO_ACCOUNT_SID
+        and settings.TWILIO_AUTH_TOKEN
+        and settings.TWILIO_FROM_NUMBER
+    )
+
+
+def normalize_sms_phone(phone: str | None) -> str:
+    """Convert a stored student phone number to E.164 form for Twilio."""
+    value = re.sub(r"[\s()\-]", "", phone or "")
+    if value.startswith("00"):
+        value = "+" + value[2:]
+    elif not value.startswith("+"):
+        # Campus forms commonly store an Indian mobile number without +91.
+        if value.isdigit() and len(value) == 10:
+            value = f"{settings.SMS_DEFAULT_COUNTRY_CODE}{value}"
+        else:
+            return ""
+    if not re.fullmatch(r"\+[1-9]\d{7,14}", value):
+        return ""
+    return value
+
+
+def send_sms(phone: str | None, message: str, ref: str | None = None) -> bool:
+    """Send an optional status SMS via Twilio without storing provider credentials in code."""
+    if not sms_is_configured():
+        current_app.logger.info("SMS is not configured; skipping notification for letter %s.", ref or "unknown")
+        return False
+
+    recipient = normalize_sms_phone(phone)
+    if not recipient:
+        current_app.logger.warning("SMS recipient has an invalid phone number for letter %s.", ref or "unknown")
+        return False
+
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.TWILIO_ACCOUNT_SID}/Messages.json"
+    try:
+        response = _requests.post(
+            url,
+            data={"To": recipient, "From": settings.TWILIO_FROM_NUMBER, "Body": message},
+            auth=(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN),
+            timeout=settings.MAIL_TIMEOUT,
+        )
+        if response.status_code in {200, 201}:
+            current_app.logger.info("SMS sent for letter %s", ref or "unknown")
+            return True
+        current_app.logger.warning("SMS provider rejected letter %s: HTTP %s", ref or "unknown", response.status_code)
+    except Exception as exc:
+        current_app.logger.warning("Failed to send SMS for letter %s: %s", ref or "unknown", exc)
+    return False
+
+
+def notification_summary(notification_status: dict[str, str] | None) -> str:
+    """Create an honest, concise delivery message for HTML and device clients."""
+    status = notification_status or {}
+    channel_labels = {"email": "Email", "sms": "SMS"}
+    outcomes = []
+    for channel in ("email", "sms"):
+        outcome = status.get(channel)
+        if outcome == "sent":
+            outcomes.append(f"{channel_labels[channel]} sent")
+        elif outcome == "failed":
+            outcomes.append(f"{channel_labels[channel]} failed")
+    if outcomes:
+        return "; ".join(outcomes) + "."
+    return "No notification channel is configured."
+
+
+def notify_letter_status_change(
+    letter: Letter,
+    previous_status: str,
+    new_status: str,
+    updated_at: datetime | None = None,
+) -> dict[str, str]:
+    """Notify a student when a letter status changes without repeating unchanged values."""
+    result = {
+        "email": "not_configured" if not email_is_configured() else "failed",
+        "sms": "not_configured" if not sms_is_configured() else "failed",
+    }
+    if not letter or not letter.email or previous_status == new_status:
+        return result
+
+    updated_at = updated_at or utc_now()
+    portal_url = f"{settings.APP_BASE_URL}/submit?id={letter.app_id}" if settings.APP_BASE_URL else f"/submit?id={letter.app_id}"
+    remarks = (letter.description or "").strip() or "No remarks were added."
+    body = (
+        f"Dear {letter.name or 'Student'},\n\n"
+        f"Your letter status has been updated.\n\n"
+        f"Letter ID: {letter.app_id}\n"
+        f"Subject: {letter.subject}\n"
+        f"Previous Status: {previous_status}\n"
+        f"New Status: {new_status}\n"
+        f"Updated Time (IST): {serialize_datetime(updated_at)}\n"
+        f"Remarks / Comments: {remarks}\n"
+        f"Track your letter: {portal_url}\n\n"
+        "If you did not request this change, you can ignore this email."
+    )
+    if email_is_configured():
+        result["email"] = "sent" if send_email(
+            letter.email,
+            body,
+            subject=f"Letter Status Updated - {letter.app_id}",
+            ref=letter.app_id,
+        ) else "failed"
+
+    if sms_is_configured():
+        sms_body = (
+            f"MIT Letterbox: {letter.app_id} is now {new_status}. "
+            f"Track: {portal_url}"
+        )
+        result["sms"] = "sent" if send_sms(letter.phone, sms_body, ref=letter.app_id) else "failed"
+    return result
+
+
+def notify_letter_created(letter: Letter) -> dict[str, str]:
+    """Send the initial creation notification through each configured channel."""
+    result = {
+        "email": "not_configured" if not email_is_configured() else "failed",
+        "sms": "not_configured" if not sms_is_configured() else "failed",
+    }
+    if not letter:
+        return result
+
+    portal_url = f"{settings.APP_BASE_URL}/submit?id={letter.app_id}" if settings.APP_BASE_URL else f"/submit?id={letter.app_id}"
+    if email_is_configured() and letter.email:
+        body = (
+            f"Dear {letter.name or 'Student'},\n\n"
+            f"Your letter request {letter.app_id} has been created. Download it, print it, and submit it to the institute letterbox.\n\n"
+            f"Track your letter: {portal_url}"
+        )
+        result["email"] = "sent" if send_email(
+            letter.email,
+            body,
+            subject=f"Letter Created - {letter.app_id}",
+            ref=letter.app_id,
+        ) else "failed"
+    if sms_is_configured():
+        result["sms"] = "sent" if send_sms(
+            letter.phone,
+            f"MIT Letterbox: Your letter {letter.app_id} was created. Track: {portal_url}",
+            ref=letter.app_id,
+        ) else "failed"
+    return result
+
+
+def send_email(to_email: str, message: str, subject: str = "Notification", ref: str | None = None) -> bool:
     """Send email notifications and always keep a local .eml audit copy."""
     if not to_email:
         current_app.logger.info("Skipping email because recipient is empty")
-        return
+        return False
 
-    smtp_user = os.environ.get("SMTP_USER", "")
-    smtp_pass = os.environ.get("SMTP_PASS", "")
-    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_user = settings.MAIL_USERNAME
+    smtp_pass = settings.MAIL_PASSWORD
+    smtp_host = settings.MAIL_SERVER
+    smtp_port = settings.MAIL_PORT
+    sender = settings.MAIL_DEFAULT_SENDER
+    use_tls = settings.MAIL_USE_TLS
+    use_ssl = settings.MAIL_USE_SSL
+
+    if not smtp_host or not smtp_user or not smtp_pass:
+        current_app.logger.warning(
+            "SMTP is not configured for email delivery; skipping notification for %s. Set MAIL_SERVER/MAIL_USERNAME/MAIL_PASSWORD or SMTP_HOST/SMTP_USER/SMTP_PASS.",
+            to_email,
+        )
+        return False
+
+    if not sender:
+        current_app.logger.warning("SMTP sender is not configured; skipping notification for %s.", to_email)
+        return False
 
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = smtp_user or "no-reply@example.com"
+    msg["From"] = sender
     msg["To"] = to_email
     msg.set_content(message)
 
@@ -405,21 +633,20 @@ def send_email(to_email: str, message: str, subject: str = "Notification", ref: 
             handle.write(f"Subject: {msg['Subject']}\n\n")
             handle.write(message)
     except Exception as exc:
-        current_app.logger.warning("Failed to save local email copy: %s", exc)
+        current_app.logger.warning("Failed to save local email copy for %s: %s", ref or "unknown", type(exc).__name__)
 
     try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
-            if smtp_port in (25, 587):
-                try:
-                    server.starttls()
-                except Exception:
-                    current_app.logger.debug("SMTP server does not support STARTTLS")
-            if smtp_user and smtp_pass and smtp_host != "localhost":
-                server.login(smtp_user, smtp_pass)
+        smtp_client = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
+        with smtp_client(smtp_host, smtp_port, timeout=settings.MAIL_TIMEOUT) as server:
+            if use_tls and not use_ssl:
+                server.starttls()
+            server.login(smtp_user, smtp_pass)
             server.send_message(msg)
         current_app.logger.info("Email sent to %s", to_email)
+        return True
     except Exception as exc:
-        current_app.logger.warning("Failed to send email to %s: %s", to_email, exc)
+        current_app.logger.warning("Failed to send email for %s: %s", ref or "unknown", type(exc).__name__)
+        return False
 
 
 def jsonify_error(message: str, status_code: int = 400, **payload):
@@ -448,7 +675,7 @@ def verify_recaptcha(form_token: str | None) -> tuple[bool, str | None]:
         response = _requests.post("https://www.google.com/recaptcha/api/siteverify", data=payload, timeout=8)
         data = response.json()
     except Exception as exc:
-        current_app.logger.warning("reCAPTCHA verification failed: %s", exc)
+        current_app.logger.warning("reCAPTCHA verification failed: %s", type(exc).__name__)
         return False, "Unable to verify reCAPTCHA right now. Please try again."
 
     if data.get("success"):
@@ -461,12 +688,39 @@ def esp_token_valid(data) -> bool:
     """Validate the optional ESP device token for hardware endpoints."""
     expected = os.environ.get("ESP_TOKEN", "").strip()
     if not expected:
-        return True
+        return False
 
     token = request.headers.get("X-ESP-Token", "").strip()
     if not token and hasattr(data, "get"):
         token = str(data.get("token", "")).strip()
     return token == expected
+
+
+def parse_esp_payload() -> dict[str, str]:
+    """Read JSON, form-encoded, or query-string POST data from either ESP board."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        payload = request.form.to_dict(flat=True)
+    if not payload:
+        payload = request.args.to_dict(flat=True)
+
+    normalized = {
+        str(key): str(value).strip()
+        for key, value in payload.items()
+        if value is not None
+    }
+    scanned_value = (
+        normalized.get("id")
+        or normalized.get("app_id")
+        or normalized.get("letter_id")
+        or normalized.get("code")
+        or normalized.get("barcode")
+        or normalized.get("qr")
+    )
+    app_id = extract_app_id(scanned_value)
+    if app_id:
+        normalized["app_id"] = app_id
+    return normalized
 
 
 def infer_esp_action(data) -> str | None:
@@ -488,46 +742,3 @@ def infer_esp_action(data) -> str | None:
     return None
 
 
-def fetch_esp_payload(esp_host: str):
-    """Query the ESP endpoint and normalize the response for the staff scanner UI."""
-    candidate_paths = ["/data", "/"]
-    tried = []
-    last_error = None
-    headers = {"Connection": "close", "User-Agent": "Mozilla/5.0"}
-
-    for path in candidate_paths:
-        url = f"http://{esp_host}{path}"
-        tried.append(url)
-        try:
-            response = _requests.get(url, timeout=4, headers=headers)
-            if response.status_code >= 400:
-                continue
-            try:
-                return response.json(), None
-            except Exception:
-                text = response.text or ""
-                app_id = extract_app_id(text)
-                if app_id:
-                    return {"app_id": app_id, "barcode": app_id, "raw": text, "source": url}, None
-                stripped = re.sub(r"<[^>]+>", "", text).strip()
-                if stripped:
-                    return {"barcode": stripped, "raw": text, "source": url}, None
-        except Exception as exc:
-            last_error = exc
-            current_app.logger.debug("ESP fetch failed for %s: %s", url, exc)
-
-    return None, {"tried": tried, "error": str(last_error) if last_error else ""}
-
-
-def decode_uploaded_scan(file_storage):
-    """Decode a QR or barcode image uploaded by staff."""
-    if not HAVE_PIL or not HAVE_PYZBAR:
-        raise RuntimeError("Server is missing Pillow or pyzbar for barcode decoding.")
-
-    image = Image.open(file_storage.stream).convert("RGB")
-    decoded = zbar_decode(image)
-    if not decoded:
-        raise ValueError("No barcode or QR code found in the image.")
-
-    texts = [item.data.decode("utf-8") for item in decoded]
-    return texts

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from flask import Flask, jsonify, render_template, request, session, url_for
+from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from flask_wtf.csrf import CSRFError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -68,10 +69,13 @@ def register_error_handlers(app: Flask) -> None:
 
     @app.errorhandler(500)
     def handle_server_error(error):
-        app.logger.exception("Unhandled server error: %s", error)
+        app.logger.exception("Unhandled server error: %s", type(error).__name__)
         if wants_json():
             return jsonify({"status": "error", "message": "Internal server error."}), 500
-        return render_template("success.html", message="Internal server error.", app_id="", name=session.get("name", "")), 500
+        try:
+            return render_template("success.html", message="Internal server error.", app_id="", name=session.get("name", "")), 500
+        except Exception:
+            return "<html><body><h1>Internal Server Error</h1></body></html>", 500
 
 
 def create_app() -> Flask:
@@ -85,7 +89,7 @@ def create_app() -> Flask:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
     app.config.update(
-        SECRET_KEY=settings.SECRET_KEY,
+        SECRET_KEY=settings.FLASK_SECRET,
         SQLALCHEMY_DATABASE_URI=settings.DATABASE_URL,
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True},
@@ -101,6 +105,17 @@ def create_app() -> Flask:
     configure_logging(app)
     db.init_app(app)
     csrf.init_app(app)
+
+    @app.before_request
+    def enforce_idle_session_timeout():
+        if not session.get("username"):
+            return None
+        last_activity = session.get("last_activity")
+        if not isinstance(last_activity, (int, float)) or time.time() - last_activity >= settings.SESSION_IDLE_MINUTES * 60:
+            session.clear()
+            return redirect(url_for("login", message="You were logged out after 5 minutes of inactivity."))
+        session["last_activity"] = time.time()
+        return None
 
     IST_ZONE = ZoneInfo("Asia/Kolkata")
 
@@ -141,6 +156,10 @@ def create_app() -> Flask:
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         return response
 
+    @app.get("/favicon.ico")
+    def favicon():
+        return send_from_directory(app.static_folder, "mit.png", mimetype="image/png")
+
     with app.app_context():
         init_db()
         ensure_initial_staff()
@@ -155,7 +174,7 @@ def create_app() -> Flask:
 def run_dev_server() -> None:
     """Start the local development server with helpful deployment warnings."""
     if app.config["SECRET_KEY"] == "change-me-in-production":
-        app.logger.warning("Using the default secret key. Set SECRET_KEY before deploying publicly.")
+        app.logger.warning("Using the default secret key. Set SECRET_KEY or FLASK_SECRET before deploying publicly.")
     if not settings.STAFF_ACCESS_KEY:
         app.logger.warning("ADMIN_ACCESS_KEY / STAFF_ACCESS_KEY is not set. Staff login key protection is disabled.")
     app.run(debug=settings.FLASK_DEBUG, host="0.0.0.0", port=settings.PORT)

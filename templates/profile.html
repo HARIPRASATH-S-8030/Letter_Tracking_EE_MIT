@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ institute_name }} - Profile</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    {% set portal_tag = 'Profile' %}
+    {% include '_brand_banner.html' %}
+    <div class="card" style="max-width:760px;margin:0 auto;">
+      <h2 style="margin:0;">Profile</h2>
+      <p class="muted" style="margin-top:8px;">Your saved details will be used automatically when creating letters.</p>
+      {% if message %}<div class="notice info">{{ message }}</div>{% endif %}
+      {% if errors %}<div class="notice error">{{ errors|join(' ') }}</div>{% endif %}
+      <form method="post" action="/profile" enctype="multipart/form-data" style="margin-top:18px;">
+        {% include '_form_security.html' %}
+        <label for="username">Register Number / Username</label>
+        <input class="input" id="username" value="{{ user.username }}" readonly>
+        <label for="name" style="display:block;margin-top:14px;">Full Name</label>
+        <input class="input" id="name" name="name" value="{{ user.name }}" maxlength="120" required>
+        <label for="email" style="display:block;margin-top:14px;">Email Address</label>
+        <input class="input" id="email" name="email" type="email" value="{{ user.email }}" maxlength="255" required>
+        <label for="phone" style="display:block;margin-top:14px;">Phone Number</label>
+        <input class="input" id="phone" name="phone" type="text" inputmode="tel" maxlength="20" value="{{ user.phone or '' }}">
+        <label for="signature" style="display:block;margin-top:14px;">Signature Image</label>
+        <input class="input" id="signature" name="signature" type="file" accept="image/png,image/jpeg">
+        <div class="placeholder-note" style="margin-top:8px;">PNG or JPG only, maximum 2 MB.</div>
+        <h3 style="margin-top:24px;">Change Password</h3>
+        <label for="current_password">Current Password</label>
+        <input class="input" id="current_password" name="current_password" type="password">
+        <label for="new_password" style="display:block;margin-top:14px;">New Password</label>
+        <input class="input" id="new_password" name="new_password" type="password">
+        <div class="placeholder-note" style="margin-top:8px;">Leave password fields empty to keep your current password.</div>
+        <div class="stack-actions" style="margin-top:18px;">
+          <button class="btn" type="submit">Save Profile</button>
+          <a class="btn btn-soft" href="{{ '/dashboard/student' if user.role == 'student' else '/dashboard/staff' }}">Back</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
