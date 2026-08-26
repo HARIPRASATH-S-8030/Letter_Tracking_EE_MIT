@@ -1,4 +1,5 @@
 import unittest
+from tempfile import TemporaryDirectory
 from io import BytesIO
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
@@ -13,7 +14,7 @@ from letterbox.models import Letter, PasswordResetToken, User
 from letterbox.routes_auth import register_auth_routes
 from letterbox.routes_staff import register_staff_routes
 from letterbox.routes_student import register_student_routes
-from letterbox.services import hash_reset_token, normalize_sms_phone, parse_esp_payload, update_letter_status
+from letterbox.services import hash_reset_token, normalize_sms_phone, parse_esp_payload, send_brevo_email, update_letter_status
 
 
 class PasswordResetAndNotificationTests(unittest.TestCase):
@@ -88,6 +89,70 @@ class PasswordResetAndNotificationTests(unittest.TestCase):
             db.session.add(expired)
             db.session.commit()
             self.assertFalse(PasswordResetToken.verify_token_for_user(user_id, "expired"))
+
+    def test_brevo_email_uses_the_transactional_email_payload(self):
+        response = Mock(status_code=201)
+        with TemporaryDirectory() as audit_dir, self.app.app_context(), \
+                patch.object(settings, "BREVO_API_KEY", "brevo-test-key"), \
+                patch.object(settings, "BREVO_SENDER_EMAIL", "sender@example.com"), \
+                patch.object(settings, "SENT_DIR", audit_dir), \
+                patch("letterbox.services._requests.post", return_value=response) as post:
+            self.assertTrue(send_brevo_email("student@example.com", "Test subject", "<p>Test body</p>"))
+
+        post.assert_called_once_with(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={"accept": "application/json", "api-key": "brevo-test-key", "content-type": "application/json"},
+            json={
+                "sender": {"email": "sender@example.com"},
+                "to": [{"email": "student@example.com"}],
+                "subject": "Test subject",
+                "htmlContent": "<p>Test body</p>",
+            },
+            timeout=settings.BREVO_TIMEOUT,
+        )
+
+    def test_password_reset_uses_brevo_with_html_content(self):
+        with self.app.app_context():
+            db.session.add(User(
+                username="reset-user",
+                password_hash=generate_password_hash("P@ssword1"),
+                role="student",
+                name="Reset User",
+                email="reset@example.com",
+            ))
+            db.session.commit()
+
+        self.app.config["WTF_CSRF_ENABLED"] = False
+        with patch("letterbox.routes_auth.send_brevo_email", return_value=True) as send, \
+                patch("letterbox.routes_auth.render_template", return_value="ok"):
+            response = self.app.test_client().post("/forgot-password", data={"email": "reset@example.com"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(send.call_args.args[:2], ("reset@example.com", "Password Reset Request"))
+        self.assertIn("Reset your password", send.call_args.args[2])
+
+    def test_approved_letter_uses_brevo_status_notification(self):
+        with self.app.app_context(), patch.object(settings, "BREVO_API_KEY", "brevo-test-key"), \
+                patch.object(settings, "BREVO_SENDER_EMAIL", "sender@example.com"), \
+                patch("letterbox.services.send_brevo_email", return_value=True) as send:
+            letter = Letter(
+                app_id="BREVO001",
+                name="Student One",
+                email="student@example.com",
+                phone="9876543210",
+                subject="Leave Application",
+                description="Test letter",
+                status="Created",
+                created_at=datetime.now(timezone.utc),
+            )
+            db.session.add(letter)
+            db.session.commit()
+
+            updated = update_letter_status(letter.app_id, "Approved")
+
+        self.assertEqual(updated.email_status, "sent")
+        self.assertEqual(send.call_args.args[:2], ("student@example.com", "Letter Status Updated - BREVO001"))
+        self.assertIn("New Status: Approved", send.call_args.args[2])
 
     def test_esp_payload_accepts_json_and_form_qr_values(self):
         with self.app.test_request_context(

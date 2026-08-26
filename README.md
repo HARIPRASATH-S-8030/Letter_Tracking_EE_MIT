@@ -19,7 +19,7 @@ This project provides a complete digital letterbox system for academic instituti
 - Optional student self-signup and institute email domain restriction
 - Optional Google reCAPTCHA support for public forms
 - Secure authentication with hashed passwords and CSRF protection
-- SMTP email notifications for request creation and status changes
+- Mailjet v3.1 HTTP API email notifications for request creation and status changes
 - Optional Twilio SMS notifications for request creation and status changes
 - Local email audit log in `sent_emails/`
 - Optional ESP integration for hardware device scanning and remote approval
@@ -78,7 +78,7 @@ This project provides a complete digital letterbox system for academic instituti
 - `python-docx` for DOCX generation
 - `qrcode` for QR code generation
 - Optional `pyzbar` and `Pillow` for barcode/QR decoding
-- SMTP email support via `smtplib`
+- Mailjet transactional email support via the `requests` HTTP client
 - Ollama local model support via its HTTP API
 
 ## Prerequisites
@@ -86,7 +86,7 @@ This project provides a complete digital letterbox system for academic instituti
 - Python 3.11+ (recommended)
 - `pip`
 - PostgreSQL for production deployments (optional for local SQLite)
-- SMTP credentials for email notifications (optional)
+- Mailjet API credentials and a verified sender email for email notifications (optional)
 
 ## Local development setup
 
@@ -137,8 +137,7 @@ Use `.env` or actual environment variables to configure the app. Important value
 - `INITIAL_STAFF_USERNAME`, `INITIAL_STAFF_PASSWORD`, `INITIAL_STAFF_EMAIL`
 - `ADMIN_ACCESS_KEY` — optional staff login key
 - `RECAPTCHA_SITE_KEY`, `RECAPTCHA_SECRET_KEY`
-- `MAIL_SERVER`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_USE_TLS`, `MAIL_USE_SSL`, `MAIL_DEFAULT_SENDER`
-- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`
+- `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, `MAILJET_SENDER_EMAIL`, `MAILJET_TIMEOUT`
 - `SMS_ENABLED`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`
 - `ESP_TOKEN`, `ESP32_HOST`
 - `AI_OLLAMA_URL`, `AI_MODEL`, `AI_TIMEOUT`, `AI_MAX_BODY_LENGTH`
@@ -171,18 +170,10 @@ INITIAL_STAFF_EMAIL=officeadmin@mit.edu
 ADMIN_ACCESS_KEY=replace-with-a-second-secret
 RECAPTCHA_SITE_KEY=...
 RECAPTCHA_SECRET_KEY=...
-MAIL_SERVER=smtp.gmail.com
-MAIL_PORT=587
-MAIL_USERNAME=you@example.com
-MAIL_PASSWORD=...
-MAIL_USE_TLS=true
-MAIL_USE_SSL=false
-MAIL_DEFAULT_SENDER=you@example.com
-
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=you@example.com
-SMTP_PASS=...
+MAILJET_API_KEY=your-mailjet-api-key
+MAILJET_SECRET_KEY=your-mailjet-secret-key
+MAILJET_SENDER_EMAIL=no-reply@your-verified-domain.example
+MAILJET_TIMEOUT=15
 SMS_ENABLED=false
 SMS_DEFAULT_COUNTRY_CODE=+91
 TWILIO_ACCOUNT_SID=...
@@ -283,13 +274,13 @@ Or specify a source SQLite file:
 - Use PostgreSQL in production
 - Enable `SESSION_COOKIE_SECURE=true`
 - Set a strong `SECRET_KEY` and staff access key
-- Configure SMTP for real email notifications
+- Configure Mailjet for real email notifications
 - Protect the app behind HTTPS
 
 ## Troubleshooting
 
-- If email delivery fails, configure a real SMTP account. Gmail requires an App Password (not the normal account password); use `MAIL_USE_TLS=true` with port 587, or `MAIL_USE_SSL=true` with port 465.
-- The `sent_emails/` directory is an audit copy only; it is not proof that SMTP delivery succeeded.
+- If email delivery fails, verify `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, and ensure `MAILJET_SENDER_EMAIL` is a verified Mailjet sender. The API response is logged without exposing credentials.
+- The `sent_emails/` directory is an audit copy only; it is not proof that Mailjet accepted or delivered the message.
 - For SMS, configure a Twilio account and an E.164 sender number. Indian 10-digit student numbers are normalized with `SMS_DEFAULT_COUNTRY_CODE` (default `+91`).
 - See `docs/esp_https.md` for ESP32 and ESP8266 HTTPS POST examples.
 - If reCAPTCHA is enabled, ensure both site and secret keys are valid

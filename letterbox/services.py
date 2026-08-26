@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import os
 import re
-import smtplib
 import uuid
 from datetime import datetime, timezone
-from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
@@ -440,8 +439,12 @@ def build_password_reset_link(raw_token: str) -> str:
 
 
 def email_is_configured() -> bool:
-    """Return whether the minimum SMTP settings for delivery are present."""
-    return bool(settings.MAIL_SERVER and settings.MAIL_USERNAME and settings.MAIL_PASSWORD and settings.MAIL_DEFAULT_SENDER)
+    """Return whether Mailjet HTTP delivery is configured."""
+    return bool(
+        os.environ.get("MAILJET_API_KEY")
+        and os.environ.get("MAILJET_SECRET_KEY")
+        and os.environ.get("MAILJET_SENDER_EMAIL")
+    )
 
 
 def sms_is_configured() -> bool:
@@ -487,7 +490,7 @@ def send_sms(phone: str | None, message: str, ref: str | None = None) -> bool:
             url,
             data={"To": recipient, "From": settings.TWILIO_FROM_NUMBER, "Body": message},
             auth=(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN),
-            timeout=settings.MAIL_TIMEOUT,
+            timeout=settings.SMS_TIMEOUT,
         )
         if response.status_code in {200, 201}:
             current_app.logger.info("SMS sent for letter %s", ref or "unknown")
@@ -512,6 +515,17 @@ def notification_summary(notification_status: dict[str, str] | None) -> str:
     if outcomes:
         return "; ".join(outcomes) + "."
     return "No notification channel is configured."
+
+
+def plain_text_to_html(content: str) -> str:
+    """Safely wrap plain notification text for Mailjet's ``HTMLPart`` field."""
+    paragraphs = [
+        html.escape(paragraph).replace("\n", "<br>\n")
+        for paragraph in (content or "").strip().split("\n\n")
+        if paragraph.strip()
+    ]
+    body = "\n".join(f"<p>{paragraph}</p>" for paragraph in paragraphs)
+    return f"<!doctype html><html><body>{body}</body></html>"
 
 
 def notify_letter_status_change(
@@ -543,15 +557,15 @@ def notify_letter_status_change(
         f"Track your letter: {portal_url}\n\n"
         "If you did not request this change, you can ignore this email."
     )
-    if email_is_configured():
-        result["email"] = "sent" if send_email(
+    if new_status in {settings.STATUS_SUBMITTED, settings.STATUS_APPROVED} and email_is_configured():
+        result["email"] = "sent" if send_mailjet_email(
             letter.email,
-            body,
-            subject=f"Letter Status Updated - {letter.app_id}",
+            f"Letter Status Updated - {letter.app_id}",
+            plain_text_to_html(body),
             ref=letter.app_id,
         ) else "failed"
 
-    if sms_is_configured():
+    if new_status in {settings.STATUS_SUBMITTED, settings.STATUS_APPROVED} and sms_is_configured():
         sms_body = (
             f"MIT Letterbox: {letter.app_id} is now {new_status}. "
             f"Track: {portal_url}"
@@ -576,10 +590,10 @@ def notify_letter_created(letter: Letter) -> dict[str, str]:
             f"Your letter request {letter.app_id} has been created. Download it, print it, and submit it to the institute letterbox.\n\n"
             f"Track your letter: {portal_url}"
         )
-        result["email"] = "sent" if send_email(
+        result["email"] = "sent" if send_mailjet_email(
             letter.email,
-            body,
-            subject=f"Letter Created - {letter.app_id}",
+            f"Letter Created - {letter.app_id}",
+            plain_text_to_html(body),
             ref=letter.app_id,
         ) else "failed"
     if sms_is_configured():
@@ -591,62 +605,52 @@ def notify_letter_created(letter: Letter) -> dict[str, str]:
     return result
 
 
-def send_email(to_email: str, message: str, subject: str = "Notification", ref: str | None = None) -> bool:
-    """Send email notifications and always keep a local .eml audit copy."""
-    if not to_email:
-        current_app.logger.info("Skipping email because recipient is empty")
+def send_mailjet_email(to_email: str, subject: str, html_content: str, ref: str | None = None) -> bool:
+    """Send an email through Mailjet's v3.1 HTTP API and keep a local audit copy."""
+    recipient = normalize_email(to_email)
+    if not recipient or "@" not in recipient or not email_is_configured():
+        current_app.logger.info("Skipping Mailjet email for %s because the recipient or configuration is invalid", ref or "unknown")
         return False
 
-    smtp_user = settings.MAIL_USERNAME
-    smtp_pass = settings.MAIL_PASSWORD
-    smtp_host = settings.MAIL_SERVER
-    smtp_port = settings.MAIL_PORT
-    sender = settings.MAIL_DEFAULT_SENDER
-    use_tls = settings.MAIL_USE_TLS
-    use_ssl = settings.MAIL_USE_SSL
-
-    if not smtp_host or not smtp_user or not smtp_pass:
-        current_app.logger.warning(
-            "SMTP is not configured for email delivery; skipping notification for %s. Set MAIL_SERVER/MAIL_USERNAME/MAIL_PASSWORD or SMTP_HOST/SMTP_USER/SMTP_PASS.",
-            to_email,
-        )
-        return False
-
-    if not sender:
-        current_app.logger.warning("SMTP sender is not configured; skipping notification for %s.", to_email)
-        return False
-
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = sender
-    msg["To"] = to_email
-    msg.set_content(message)
+    plain_content = re.sub(r"<[^>]+>", " ", html_content or "")
 
     try:
+        ensure_dirs()
         stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
         ref_part = f"{ref}_" if ref else ""
         file_name = f"{ref_part}{stamp}_{uuid.uuid4().hex[:8]}.eml"
         file_path = os.path.join(settings.SENT_DIR, file_name)
         with open(file_path, "w", encoding="utf-8") as handle:
-            handle.write(f"From: {msg['From']}\n")
-            handle.write(f"To: {msg['To']}\n")
-            handle.write(f"Subject: {msg['Subject']}\n\n")
-            handle.write(message)
+            handle.write(f"From: {os.environ.get('MAILJET_SENDER_EMAIL')}\nTo: {recipient}\nSubject: {subject}\n\n{plain_content}")
     except Exception as exc:
         current_app.logger.warning("Failed to save local email copy for %s: %s", ref or "unknown", type(exc).__name__)
 
     try:
-        smtp_client = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
-        with smtp_client(smtp_host, smtp_port, timeout=settings.MAIL_TIMEOUT) as server:
-            if use_tls and not use_ssl:
-                server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.send_message(msg)
-        current_app.logger.info("Email sent to %s", to_email)
-        return True
+        response = _requests.post(
+            settings.MAILJET_API_URL,
+            auth=(os.environ.get("MAILJET_API_KEY"), os.environ.get("MAILJET_SECRET_KEY")),
+            json={
+                "Messages": [
+                    {
+                        "From": {
+                            "Email": os.environ.get("MAILJET_SENDER_EMAIL"),
+                            "Name": "Letter Tracking System",
+                        },
+                        "To": [{"Email": recipient}],
+                        "Subject": subject,
+                        "HTMLPart": html_content,
+                    }
+                ]
+            },
+            timeout=settings.MAILJET_TIMEOUT,
+        )
+        if 200 <= response.status_code < 300:
+            current_app.logger.info("Mailjet email sent for %s", ref or "unknown")
+            return True
+        current_app.logger.warning("Mailjet email failed for %s with HTTP %s", ref or "unknown", response.status_code)
     except Exception as exc:
         current_app.logger.warning("Failed to send email for %s: %s", ref or "unknown", type(exc).__name__)
-        return False
+    return False
 
 
 def jsonify_error(message: str, status_code: int = 400, **payload):
@@ -740,5 +744,3 @@ def infer_esp_action(data) -> str | None:
             if outbox and device_id.lower() == outbox:
                 return "approve"
     return None
-
-

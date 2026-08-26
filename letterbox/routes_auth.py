@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import os
 import time
 from datetime import datetime, timezone
@@ -26,7 +27,7 @@ from .auth import (
 )
 from .extensions import db
 from .models import PasswordResetToken, User
-from .services import build_password_reset_link, is_allowed_institute_email, save_signature_image, send_email, verify_recaptcha
+from .services import build_password_reset_link, is_allowed_institute_email, save_signature_image, send_mailjet_email, verify_recaptcha
 
 
 def register_auth_routes(app):
@@ -167,15 +168,17 @@ def register_auth_routes(app):
                     token.used = True
                 reset_record = PasswordResetToken.create_for_user(user)
                 reset_url = build_password_reset_link(reset_record.raw_token)
-                send_email(
+                send_mailjet_email(
                     user.email,
+                    "Password Reset Request",
                     (
-                        f"Hello {user.name},\n\n"
-                        "We received a request to reset your password.\n\n"
-                        f"Reset your password: {reset_url}\n\n"
-                        "This link expires in 30 minutes. If you did not request this, you can ignore this email."
+                        "<!doctype html><html><body>"
+                        f"<p>Hello {html.escape(user.name)},</p>"
+                        "<p>We received a request to reset your password.</p>"
+                        f'<p><a href="{html.escape(reset_url, quote=True)}">Reset your password</a></p>'
+                        "<p>This link expires in 30 minutes. If you did not request this, you can ignore this email.</p>"
+                        "</body></html>"
                     ),
-                    subject="Password Reset Request",
                     ref=user.username,
                 )
 

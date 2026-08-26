@@ -50,4 +50,4 @@ bool postScan(const String& appId) {
 }
 ```
 
-`setInsecure()` is useful only to isolate connectivity problems during development. Before deployment, pin a trusted CA certificate or a server certificate/fingerprint appropriate to the board library. Do not embed SMTP, Twilio, or other provider credentials in the ESP firmware.
+`setInsecure()` is useful only to isolate connectivity problems during development. Before deployment, pin a trusted CA certificate or a server certificate/fingerprint appropriate to the board library. Do not embed Mailjet, Twilio, or other provider credentials in the ESP firmware.

@@ -335,73 +335,21 @@ LOG_LEVEL = os.environ.get(
 
 
 # ---------------------------------------------------------------------------
-# Email / SMTP
-#
-# Supports both:
-#
-# MAIL_*
-# SMTP_*
+# Email / Mailjet v3.1 HTTP API
 # ---------------------------------------------------------------------------
 
-MAIL_SERVER = (
-    os.environ.get("MAIL_SERVER")
-    or os.environ.get("SMTP_HOST")
-    or ""
-)
+MAILJET_API_KEY = os.environ.get("MAILJET_API_KEY", "").strip()
+MAILJET_SECRET_KEY = os.environ.get("MAILJET_SECRET_KEY", "").strip()
+MAILJET_SENDER_EMAIL = os.environ.get("MAILJET_SENDER_EMAIL", "").strip()
+MAILJET_API_URL = "https://api.mailjet.com/v3.1/send"
 
-MAIL_PORT = int(
+MAILJET_TIMEOUT = int(
     os.environ.get(
-        "MAIL_PORT",
-        os.environ.get(
-            "SMTP_PORT",
-            "587",
-        ),
-    )
-)
-
-MAIL_USERNAME = (
-    os.environ.get("MAIL_USERNAME")
-    or os.environ.get("SMTP_USER")
-    or ""
-)
-
-MAIL_PASSWORD = (
-    os.environ.get("MAIL_PASSWORD")
-    or os.environ.get("SMTP_PASS")
-    or ""
-)
-
-MAIL_USE_TLS = env_bool(
-    "MAIL_USE_TLS",
-    True,
-)
-
-MAIL_USE_SSL = env_bool(
-    "MAIL_USE_SSL",
-    False,
-)
-
-MAIL_TIMEOUT = int(
-    os.environ.get(
-        "MAIL_TIMEOUT",
+        "MAILJET_TIMEOUT",
         "15",
     )
 )
 
-MAIL_DEFAULT_SENDER = (
-    os.environ.get("MAIL_DEFAULT_SENDER")
-    or os.environ.get("SMTP_FROM")
-    or MAIL_USERNAME
-    or ""
-)
-
-
-# Backward-compatible SMTP aliases.
-SMTP_HOST = MAIL_SERVER
-SMTP_PORT = MAIL_PORT
-SMTP_USER = MAIL_USERNAME
-SMTP_PASS = MAIL_PASSWORD
-SMTP_FROM = MAIL_DEFAULT_SENDER
 
 
 # ---------------------------------------------------------------------------
@@ -432,6 +380,8 @@ SMS_ENABLED = env_bool(
     "SMS_ENABLED",
     bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM_NUMBER),
 )
+
+SMS_TIMEOUT = int(os.environ.get("SMS_TIMEOUT", "15"))
 
 
 # ---------------------------------------------------------------------------
