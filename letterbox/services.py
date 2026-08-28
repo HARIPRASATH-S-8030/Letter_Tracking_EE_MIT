@@ -103,6 +103,11 @@ def build_formal_letter_content(letter: Letter) -> dict[str, object]:
     """Build the fixed-format formal letter content used for DOCX and TXT export."""
     subject = sentence_case(letter.generated_subject or letter.subject) or "Request"
     body_text = normalize_letter_description(letter.generated_body or letter.description)
+    sig_path = (
+        os.path.join(settings.SIGNATURE_DIR, letter.signature_file_name)
+        if letter.signature_file_name
+        else ""
+    )
     return {
         "heading_line": settings.LETTER_HEADING,
         "from_lines": [
@@ -121,11 +126,7 @@ def build_formal_letter_content(letter: Letter) -> dict[str, object]:
         "subject_line": subject if subject.lower().endswith("-reg.") else f"{subject} - Reg.",
         "body_text": body_text,
         "hod_verification": letter.status == settings.STATUS_APPROVED,
-        "signature_path": (
-            os.path.join(settings.SIGNATURE_DIR, letter.signature_file_name)
-            if letter.signature_file_name
-            else ""
-        ),
+        "signature_path": sig_path if (sig_path and os.path.exists(sig_path)) else "",
     }
 
 
@@ -215,7 +216,7 @@ def letter_belongs_to_current_user(letter: Letter) -> bool:
     """Restrict student access to only their own letters."""
     if session.get("role") in {"staff", "admin"}:
         return True
-    return session.get("role") == "student" and normalize_email(letter.email) == session.get("email")
+    return session.get("role") == "student" and normalize_email(letter.email) == normalize_email(session.get("email", ""))
 
 
 def get_letter(app_id: str) -> Letter | None:
@@ -245,8 +246,6 @@ def update_letter_status(app_id: str, new_status: str) -> Letter | None:
             letter.approved_at = timestamp
         db.session.commit()
         notification_status = notify_letter_status_change(letter, current_status, new_status, timestamp)
-        # This is intentionally transient: delivery is reported to the request that
-        # triggered it, while the letter workflow remains available if a provider is down.
         letter.notification_status = notification_status
         letter.email_status = notification_status["email"]
         letter.sms_status = notification_status["sms"]
@@ -369,25 +368,15 @@ def generate_letter_file(letter: Letter) -> str:
         doc.save(output_path)
     else:
         with open(output_path, "w", encoding="utf-8") as handle:
-            handle.write(f"{letter_content['heading_line'].center(70)}\n")
-            handle.write("\n")
+            handle.write(f"{letter_content['heading_line'].center(70)}\n\n")
             handle.write("From:\n")
             for line in letter_content["from_lines"]:
                 handle.write(f"{line}\n")
-            handle.write("\n")
-            handle.write(f"{letter_content['date_line']}\n\n")
-            handle.write("To,\n")
+            handle.write(f"\n{letter_content['date_line']}\n\nTo,\n")
             for line in letter_content["to_lines"]:
                 handle.write(f"{line}\n")
-            handle.write("\n")
-            handle.write("Respected Sir/Mam,\n")
-            handle.write(f"Sub : {letter_content['subject_line']}\n")
-            handle.write(f"{letter_content['body_text']}\n\n")
-            handle.write("Yours sincerely,\n")
-            if letter_content["signature_path"] and os.path.exists(letter_content["signature_path"]):
-                handle.write("[Student signature attached]\n")
-            else:
-                handle.write("\n")
+            handle.write(f"\nRespected Sir/Mam,\nSub : {letter_content['subject_line']}\n\n")
+            handle.write(f"{letter_content['body_text']}\n\nYours sincerely,\n")
             handle.write(f"{letter.name}\n")
             if letter_content["hod_verification"]:
                 handle.write("\n\u2713 Digitally verified by the HoD\n")
@@ -413,7 +402,8 @@ def save_signature_image(file_storage, app_id: str) -> str:
 
 
 def ensure_letter_file(letter: Letter) -> str:
-    """Return a valid generated letter file path, recreating it when storage is ephemeral."""
+    """Return a valid generated letter file path, recreating it safely when storage is ephemeral."""
+    ensure_dirs()
     if letter.status == settings.STATUS_APPROVED:
         return generate_letter_file(letter)
     if letter.generated_file_name:
@@ -463,7 +453,6 @@ def normalize_sms_phone(phone: str | None) -> str:
     if value.startswith("00"):
         value = "+" + value[2:]
     elif not value.startswith("+"):
-        # Campus forms commonly store an Indian mobile number without +91.
         if value.isdigit() and len(value) == 10:
             value = f"{settings.SMS_DEFAULT_COUNTRY_CODE}{value}"
         else:
@@ -476,12 +465,10 @@ def normalize_sms_phone(phone: str | None) -> str:
 def send_sms(phone: str | None, message: str, ref: str | None = None) -> bool:
     """Send an optional status SMS via Twilio without storing provider credentials in code."""
     if not sms_is_configured():
-        current_app.logger.info("SMS is not configured; skipping notification for letter %s.", ref or "unknown")
         return False
 
     recipient = normalize_sms_phone(phone)
     if not recipient:
-        current_app.logger.warning("SMS recipient has an invalid phone number for letter %s.", ref or "unknown")
         return False
 
     url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.TWILIO_ACCOUNT_SID}/Messages.json"
@@ -492,13 +479,9 @@ def send_sms(phone: str | None, message: str, ref: str | None = None) -> bool:
             auth=(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN),
             timeout=settings.SMS_TIMEOUT,
         )
-        if response.status_code in {200, 201}:
-            current_app.logger.info("SMS sent for letter %s", ref or "unknown")
-            return True
-        current_app.logger.warning("SMS provider rejected letter %s: HTTP %s", ref or "unknown", response.status_code)
-    except Exception as exc:
-        current_app.logger.warning("Failed to send SMS for letter %s: %s", ref or "unknown", exc)
-    return False
+        return response.status_code in {200, 201}
+    except Exception:
+        return False
 
 
 def notification_summary(notification_status: dict[str, str] | None) -> str:
@@ -518,7 +501,7 @@ def notification_summary(notification_status: dict[str, str] | None) -> str:
 
 
 def plain_text_to_html(content: str) -> str:
-    """Safely wrap plain notification text for Mailjet's ``HTMLPart`` field."""
+    """Safely wrap plain notification text for Mailjet's HTMLPart field."""
     paragraphs = [
         html.escape(paragraph).replace("\n", "<br>\n")
         for paragraph in (content or "").strip().split("\n\n")
@@ -566,10 +549,7 @@ def notify_letter_status_change(
         ) else "failed"
 
     if new_status in {settings.STATUS_SUBMITTED, settings.STATUS_APPROVED} and sms_is_configured():
-        sms_body = (
-            f"MIT Letterbox: {letter.app_id} is now {new_status}. "
-            f"Track: {portal_url}"
-        )
+        sms_body = f"MIT Letterbox: {letter.app_id} is now {new_status}. Track: {portal_url}"
         result["sms"] = "sent" if send_sms(letter.phone, sms_body, ref=letter.app_id) else "failed"
     return result
 
@@ -609,7 +589,6 @@ def send_mailjet_email(to_email: str, subject: str, html_content: str, ref: str 
     """Send an email through Mailjet's v3.1 HTTP API and keep a local audit copy."""
     recipient = normalize_email(to_email)
     if not recipient or "@" not in recipient or not email_is_configured():
-        current_app.logger.info("Skipping Mailjet email for %s because the recipient or configuration is invalid", ref or "unknown")
         return False
 
     plain_content = re.sub(r"<[^>]+>", " ", html_content or "")
@@ -622,8 +601,8 @@ def send_mailjet_email(to_email: str, subject: str, html_content: str, ref: str 
         file_path = os.path.join(settings.SENT_DIR, file_name)
         with open(file_path, "w", encoding="utf-8") as handle:
             handle.write(f"From: {os.environ.get('MAILJET_SENDER_EMAIL')}\nTo: {recipient}\nSubject: {subject}\n\n{plain_content}")
-    except Exception as exc:
-        current_app.logger.warning("Failed to save local email copy for %s: %s", ref or "unknown", type(exc).__name__)
+    except Exception:
+        pass
 
     try:
         response = _requests.post(
@@ -644,13 +623,9 @@ def send_mailjet_email(to_email: str, subject: str, html_content: str, ref: str 
             },
             timeout=settings.MAILJET_TIMEOUT,
         )
-        if 200 <= response.status_code < 300:
-            current_app.logger.info("Mailjet email sent for %s", ref or "unknown")
-            return True
-        current_app.logger.warning("Mailjet email failed for %s with HTTP %s", ref or "unknown", response.status_code)
-    except Exception as exc:
-        current_app.logger.warning("Failed to send email for %s: %s", ref or "unknown", type(exc).__name__)
-    return False
+        return 200 <= response.status_code < 300
+    except Exception:
+        return False
 
 
 def jsonify_error(message: str, status_code: int = 400, **payload):
@@ -678,14 +653,11 @@ def verify_recaptcha(form_token: str | None) -> tuple[bool, str | None]:
     try:
         response = _requests.post("https://www.google.com/recaptcha/api/siteverify", data=payload, timeout=8)
         data = response.json()
-    except Exception as exc:
-        current_app.logger.warning("reCAPTCHA verification failed: %s", type(exc).__name__)
+        if data.get("success"):
+            return True, None
+        return False, "reCAPTCHA verification failed. Please try again."
+    except Exception:
         return False, "Unable to verify reCAPTCHA right now. Please try again."
-
-    if data.get("success"):
-        return True, None
-    current_app.logger.info("reCAPTCHA rejected request: %s", data.get("error-codes", []))
-    return False, "reCAPTCHA verification failed. Please try again."
 
 
 def esp_token_valid(data) -> bool:

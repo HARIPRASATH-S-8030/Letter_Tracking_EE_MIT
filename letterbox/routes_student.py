@@ -38,7 +38,7 @@ def register_student_routes(app):
     @roles_required("student")
     def student_dashboard():
         letters = (
-            Letter.query.filter(func.lower(Letter.email) == session.get("email"))
+            Letter.query.filter(func.lower(Letter.email) == session.get("email", "").lower())
             .order_by(Letter.created_at.desc(), Letter.app_id.desc())
             .all()
         )
@@ -64,7 +64,7 @@ def register_student_routes(app):
                 app_id="",
                 name=user.name if user else session.get("name", ""),
                 email=user.email if user else session.get("email", ""),
-                phone=user.phone if user else "",
+                phone=user.phone if user and user.phone else "",
                 request_types=REQUEST_TYPES,
                 request_type="Other",
                 generation_mode="manual",
@@ -87,9 +87,14 @@ def register_student_routes(app):
         if not user:
             session.clear()
             return redirect(url_for("login"))
+
         name = user.name.strip()
         email = user.email.strip()
-        phone = user.phone.strip() if user.phone else ""
+
+        # Check form input first, fallback to user profile
+        form_phone = request.form.get("phone", "").strip()
+        phone = form_phone if form_phone else (user.phone.strip() if user.phone else "")
+
         generation_mode = request.form.get("generation_mode", "").strip().lower()
         action = request.form.get("action", "").strip().lower()
         preview_token = request.form.get("preview_token", "").strip()
@@ -116,8 +121,8 @@ def register_student_routes(app):
             errors.append("Name is required.")
         if "@" not in email:
             errors.append("A valid email is required.")
-        if not is_valid_phone(phone):
-            errors.append("Enter a valid phone number.")
+        if not phone or not is_valid_phone(phone):
+            errors.append("Enter a valid 10-digit phone number.")
         if generation_mode not in {"manual", "ai"}:
             errors.append("Choose a valid generation mode.")
         if generation_mode == "ai" and request_type not in REQUEST_TYPES:
@@ -155,13 +160,18 @@ def register_student_routes(app):
                 description=original_description,
             ), 400
 
+        # Auto-persist valid phone to user record if missing
+        if phone and not user.phone:
+            user.phone = phone
+            db.session.commit()
+
         if generation_mode == "ai" and action not in {"accept", "regenerate"}:
             try:
                 generated = generate_letter_content(request_type, original_description)
-            except AIGenerationError:
+            except AIGenerationError as exc:
                 return render_template(
                     "form.html",
-                    errors=["Letter generation is temporarily unavailable. Please try again."],
+                    errors=[str(exc) or "Letter generation is temporarily unavailable. Please try again."],
                     app_id="",
                     name=name,
                     email=email,
@@ -199,8 +209,8 @@ def register_student_routes(app):
             if action == "regenerate":
                 try:
                     generated = generate_letter_content(preview["request_type"], preview["original_description"])
-                except AIGenerationError:
-                    return render_template("form.html", errors=["Letter generation is temporarily unavailable. Please try again."], request_types=REQUEST_TYPES, generation_mode="ai"), 503
+                except AIGenerationError as exc:
+                    return render_template("form.html", errors=[str(exc) or "Letter generation is temporarily unavailable. Please try again."], request_types=REQUEST_TYPES, generation_mode="ai"), 503
                 preview.update(generated)
                 session["ai_preview"] = preview
                 return render_template("form.html", preview=generated, preview_token=preview_token, request_types=REQUEST_TYPES, request_type=preview["request_type"], generation_mode="ai")

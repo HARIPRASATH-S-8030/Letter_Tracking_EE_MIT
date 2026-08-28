@@ -46,13 +46,13 @@ def register_auth_routes(app):
 
         message = request.args.get("message", "")
         if request.method == "POST":
-            username = normalize_username(request.form.get("username", ""))
+            identifier = request.form.get("username", "").strip()
             password = request.form.get("password", "").strip()
             captcha_ok, captcha_error = verify_recaptcha(request.form.get("g-recaptcha-response"))
 
             missing = []
-            if not username:
-                missing.append("Register number")
+            if not identifier:
+                missing.append("Register number or Email")
             if not password:
                 missing.append("Password")
             if missing:
@@ -64,7 +64,14 @@ def register_auth_routes(app):
             if not captcha_ok:
                 return render_template("login.html", error=captcha_error, message=message), 400
 
-            user = get_user_by_username(username)
+            # Allow login using either register number or email
+            normalized_id = normalize_username(identifier)
+            normalized_mail = normalize_email(identifier)
+            user = User.query.filter(
+                (func.lower(User.username) == normalized_id.lower()) |
+                (func.lower(User.email) == normalized_mail.lower())
+            ).first()
+
             if not user or not check_password_hash(user.password_hash, password):
                 return render_template("login.html", error="Invalid credentials.", message=message), 401
             if user.role != "student":
@@ -82,14 +89,14 @@ def register_auth_routes(app):
 
         message = request.args.get("message", "")
         if request.method == "POST":
-            username = normalize_username(request.form.get("username", ""))
+            identifier = request.form.get("username", "").strip()
             password = request.form.get("password", "").strip()
             access_key = request.form.get("access_key", "").strip()
             captcha_ok, captcha_error = verify_recaptcha(request.form.get("g-recaptcha-response"))
 
             missing = []
-            if not username:
-                missing.append("Username")
+            if not identifier:
+                missing.append("Username or Email")
             if not password:
                 missing.append("Password")
             if settings.STAFF_ACCESS_KEY and not access_key:
@@ -116,7 +123,13 @@ def register_auth_routes(app):
                     access_key_enabled=bool(settings.STAFF_ACCESS_KEY),
                 ), 403
 
-            user = get_user_by_username(username)
+            normalized_id = normalize_username(identifier)
+            normalized_mail = normalize_email(identifier)
+            user = User.query.filter(
+                (func.lower(User.username) == normalized_id.lower()) |
+                (func.lower(User.email) == normalized_mail.lower())
+            ).first()
+
             if not user or user.role not in {"staff", "admin"} or not check_password_hash(user.password_hash, password):
                 return render_template(
                     "staff_login.html",
@@ -160,7 +173,7 @@ def register_auth_routes(app):
                     success="If an account exists for the information provided, a password reset link has been sent.",
                 )
 
-            user = User.query.filter(func.lower(User.email) == email).first()
+            user = User.query.filter(func.lower(User.email) == email.lower()).first()
             if user:
                 for token in PasswordResetToken.query.filter_by(user_id=user.username, used=False).filter(
                     PasswordResetToken.expires_at > datetime.now(timezone.utc)
@@ -217,6 +230,7 @@ def register_auth_routes(app):
                 return render_template("reset_password.html", valid=False, error="This password reset link has already been used or expired."), 400
 
             user.password_hash = generate_password_hash(password)
+            db.session.add(user)
             db.session.commit()
             return redirect(url_for("login", message="Your password has been reset successfully. Please sign in."))
 
