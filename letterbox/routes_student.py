@@ -14,7 +14,7 @@ from .ai_generation import AIGenerationError, REQUEST_TYPES, generate_letter_con
 from . import settings
 from .auth import get_user_by_username, is_valid_phone, login_required, roles_required, staff_key_required
 from .database import ensure_dirs
-from .extensions import db
+from .extensions import csrf, db
 from .models import Letter, ScanLog
 from .services import (
     ensure_letter_file,
