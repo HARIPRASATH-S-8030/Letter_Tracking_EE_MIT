@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 from werkzeug.security import generate_password_hash
 
 from . import settings
@@ -21,70 +21,69 @@ def ensure_dirs() -> None:
         os.makedirs(path, exist_ok=True)
 
 
-def column_exists(table_name: str, column_name: str) -> bool:
-    """Check whether a column exists in the current database."""
-    inspector = inspect(db.engine)
-    return any(column["name"] == column_name for column in inspector.get_columns(table_name))
-
-
 def ensure_legacy_compatible_schema() -> None:
-    """Apply schema updates to support long Base64 strings in PostgreSQL and SQLite."""
-    inspector = inspect(db.engine)
-    table_names = set(inspector.get_table_names())
+    """Apply lightweight schema updates without heavy catalog reflection."""
+    is_postgres = db.engine.dialect.name == "postgresql"
 
-    if "users" in table_names:
-        if not column_exists("users", "created_at"):
-            db.session.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP"))
-        if not column_exists("users", "email"):
-            db.session.execute(text("ALTER TABLE users ADD COLUMN email VARCHAR(255) NOT NULL DEFAULT ''"))
-        if not column_exists("users", "phone"):
-            db.session.execute(text("ALTER TABLE users ADD COLUMN phone VARCHAR(30)"))
-        if not column_exists("users", "signature_file_name"):
-            db.session.execute(text("ALTER TABLE users ADD COLUMN signature_file_name TEXT"))
-        else:
+    if is_postgres:
+        # Native PostgreSQL zero-overhead migrations
+        statements = [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255) DEFAULT ''",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS signature_file_name TEXT",
+            "ALTER TABLE users ALTER COLUMN signature_file_name TYPE TEXT",
+
+            "ALTER TABLE letters ADD COLUMN IF NOT EXISTS generated_file_name VARCHAR(255)",
+            "ALTER TABLE letters ADD COLUMN IF NOT EXISTS qr_file_name VARCHAR(255)",
+            "ALTER TABLE letters ADD COLUMN IF NOT EXISTS signature_file_name TEXT",
+            "ALTER TABLE letters ALTER COLUMN signature_file_name TYPE TEXT",
+            "ALTER TABLE letters ADD COLUMN IF NOT EXISTS generation_mode VARCHAR(10) DEFAULT 'manual'",
+            "ALTER TABLE letters ADD COLUMN IF NOT EXISTS content_source VARCHAR(20) DEFAULT 'manual'",
+            "ALTER TABLE letters ADD COLUMN IF NOT EXISTS request_type VARCHAR(40) DEFAULT 'Other'",
+            "ALTER TABLE letters ADD COLUMN IF NOT EXISTS original_description TEXT",
+            "ALTER TABLE letters ADD COLUMN IF NOT EXISTS generated_subject VARCHAR(255)",
+            "ALTER TABLE letters ADD COLUMN IF NOT EXISTS generated_body TEXT",
+
+            "ALTER TABLE scans ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
+        ]
+        for stmt in statements:
             try:
-                db.session.execute(text("ALTER TABLE users ALTER COLUMN signature_file_name TYPE TEXT"))
+                db.session.execute(text(stmt))
+                db.session.commit()
             except Exception:
                 db.session.rollback()
-
-    if "letters" in table_names:
-        if not column_exists("letters", "generated_file_name"):
-            db.session.execute(text("ALTER TABLE letters ADD COLUMN generated_file_name VARCHAR(255)"))
-        if not column_exists("letters", "qr_file_name"):
-            db.session.execute(text("ALTER TABLE letters ADD COLUMN qr_file_name VARCHAR(255)"))
-        if not column_exists("letters", "signature_file_name"):
-            db.session.execute(text("ALTER TABLE letters ADD COLUMN signature_file_name TEXT"))
-        else:
-            try:
-                db.session.execute(text("ALTER TABLE letters ALTER COLUMN signature_file_name TYPE TEXT"))
-            except Exception:
-                db.session.rollback()
-        if not column_exists("letters", "generation_mode"):
-            db.session.execute(text("ALTER TABLE letters ADD COLUMN generation_mode VARCHAR(10) NOT NULL DEFAULT 'manual'"))
-        if not column_exists("letters", "content_source"):
-            db.session.execute(text("ALTER TABLE letters ADD COLUMN content_source VARCHAR(20) NOT NULL DEFAULT 'manual'"))
-        if not column_exists("letters", "request_type"):
-            db.session.execute(text("ALTER TABLE letters ADD COLUMN request_type VARCHAR(40) NOT NULL DEFAULT 'Other'"))
-        if not column_exists("letters", "original_description"):
-            db.session.execute(text("ALTER TABLE letters ADD COLUMN original_description TEXT"))
-        if not column_exists("letters", "generated_subject"):
-            db.session.execute(text("ALTER TABLE letters ADD COLUMN generated_subject VARCHAR(255)"))
-        if not column_exists("letters", "generated_body"):
-            db.session.execute(text("ALTER TABLE letters ADD COLUMN generated_body TEXT"))
-
-    if "scans" in table_names and not column_exists("scans", "created_at"):
-        try:
-            db.session.execute(text("ALTER TABLE scans ADD COLUMN created_at TIMESTAMP"))
-            db.session.execute(text("UPDATE scans SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"))
-        except Exception:
-            db.session.rollback()
-        else:
-            db.session.commit()
-
-    try:
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
+    else:
+        # Lightweight SQLite migrations
+        sqlite_cols = {
+            "users": [
+                ("created_at", "TIMESTAMP"),
+                ("email", "VARCHAR(255) DEFAULT ''"),
+                ("phone", "VARCHAR(30)"),
+                ("signature_file_name", "TEXT"),
+            ],
+            "letters": [
+                ("generated_file_name", "VARCHAR(255)"),
+                ("qr_file_name", "VARCHAR(255)"),
+                ("signature_file_name", "TEXT"),
+                ("generation_mode", "VARCHAR(10) DEFAULT 'manual'"),
+                ("content_source", "VARCHAR(20) DEFAULT 'manual'"),
+                ("request_type", "VARCHAR(40) DEFAULT 'Other'"),
+                ("original_description", "TEXT"),
+                ("generated_subject", "VARCHAR(255)"),
+                ("generated_body", "TEXT"),
+            ],
+            "scans": [
+                ("created_at", "TIMESTAMP"),
+            ],
+        }
+        for table, cols in sqlite_cols.items():
+            for col_name, col_type in cols:
+                try:
+                    db.session.execute(text(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}"))
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
 
 
 def seed_user(username: str, password: str, role: str, name: str, email: str) -> None:
@@ -105,7 +104,10 @@ def seed_user(username: str, password: str, role: str, name: str, email: str) ->
             email=email,
         )
     )
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 
 def ensure_initial_staff() -> None:
@@ -130,7 +132,10 @@ def ensure_initial_staff() -> None:
             email=email,
         )
     )
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 
 def seed_initial_users() -> None:
@@ -154,7 +159,12 @@ def seed_initial_users() -> None:
 def init_db() -> None:
     """Create tables, apply minimal schema changes, and seed startup data."""
     ensure_dirs()
-    db.create_all()
+    try:
+        db.create_all()
+    except Exception as exc:
+        logger.warning("db.create_all warning: %s", exc)
+        db.session.rollback()
+
     ensure_legacy_compatible_schema()
     seed_initial_users()
     ensure_initial_staff()
