@@ -341,7 +341,7 @@ def generate_letter_file(letter: Letter) -> str:
         right_cell = top_table.cell(0, 1)
 
         from_paragraph = left_cell.paragraphs[0]
-        from_paragraph.add_run("From:\n").bold = True
+        from_paragraph.add_run("From\n").bold = True
         from_paragraph.add_run("\n".join(letter_content["from_lines"]))
 
         qr_paragraph = right_cell.paragraphs[0]
@@ -353,7 +353,7 @@ def generate_letter_file(letter: Letter) -> str:
         doc.add_paragraph()
 
         to_paragraph = doc.add_paragraph()
-        to_paragraph.add_run("To,\n").bold = True
+        to_paragraph.add_run("To\n").bold = True
         to_paragraph.add_run("\n".join(letter_content["to_lines"]))
 
         doc.add_paragraph()
@@ -392,10 +392,10 @@ def generate_letter_file(letter: Letter) -> str:
     else:
         with open(output_path, "w", encoding="utf-8") as handle:
             handle.write(f"{letter_content['heading_line'].center(70)}\n\n")
-            handle.write("From:\n")
+            handle.write("From\n")
             for line in letter_content["from_lines"]:
                 handle.write(f"{line}\n")
-            handle.write(f"\n{letter_content['date_line']}\n\nTo,\n")
+            handle.write(f"\n{letter_content['date_line']}\n\nTo\n")
             for line in letter_content["to_lines"]:
                 handle.write(f"{line}\n")
             handle.write(f"\nRespected Sir/Mam,\nSub : {letter_content['subject_line']}\n\n")
