@@ -1,297 +1,719 @@
-# Letterbox Management System
+# 📬 IoT-Enabled Letter Tracking & Automated Academic Requisition System
 
-URL: https://letter-tracking-ee-mit.onrender.com/login
+![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-3.0%2B-000000?style=for-the-badge&logo=flask&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Supabase-336791?style=for-the-badge&logo=postgresql&logoColor=white)
+![AI](https://img.shields.io/badge/AI-Groq%20Llama%203.3%2070B-F05032?style=for-the-badge)
+![Deployment](https://img.shields.io/badge/Render-Cloud%20Hosted-46E3B7?style=for-the-badge&logo=render&logoColor=white)
 
-A Flask-based web application for managing student letter requests and staff approvals using QR workflows, document generation, and support for PostgreSQL deployment.
+An end-to-end **IoT and cloud-integrated platform** designed to digitize and automate formal institutional requisition workflows.
 
-## Overview
+The system streamlines formal letter generation using **LLM-based natural language processing**, embeds dynamic **QR/barcode verification tags** into standardized `.docx` documents, tracks physical letterbox lifecycle transitions through **ESP32/ESP8266 optical scanners**, and sends automated **email and SMS notifications** to students and staff.
 
-This project provides a complete digital letterbox system for academic institutions. Students can submit formal letter requests, generate printable documents, and track progress. Staff and administrators can manage requests, scan QR codes, approve letters, and use ESP hardware integration for automated workflows.
+---
 
-## Key features
+## 📑 Table of Contents
 
-- Student portal for creating, tracking, and downloading formal letters
-- Staff/admin dashboard for managing letter requests and workflows
-- QR code generation for every letter request
-- Downloadable letter documents in `DOCX` or fallback `TXT` format
-- Status workflow: `Created` → `Submitted` → `Pending` → `Approved`
-- Role-based access control with separate student and staff login pages
-- Optional student self-signup and institute email domain restriction
-- Optional Google reCAPTCHA support for public forms
-- Secure authentication with hashed passwords and CSRF protection
-- Mailjet v3.1 HTTP API email notifications for request creation and status changes
-- Optional Twilio SMS notifications for request creation and status changes
-- Local email audit log in `sent_emails/`
-- Optional ESP integration for hardware device scanning and remote approval
-- Local Ollama AI assistance for standardized letter subjects and bodies
-- Works with SQLite locally and PostgreSQL in production
-- Gunicorn-ready deployment with `Procfile`
+- [Key Features](#-key-features)
+- [System Architecture & Workflow](#-system-architecture--workflow)
+- [Technology Stack](#-technology-stack)
+- [Project Directory Structure](#-project-directory-structure)
+- [Database & Security Architecture](#-database--security-architecture)
+- [Hardware & IoT Scanner Interface](#-hardware--iot-scanner-interface)
+- [Environment Variables](#-environment-variables)
+- [Local Installation & Setup](#-local-installation--setup)
+- [Deployment on Render](#-deployment-on-render)
+- [Security Notes](#-security-notes)
+- [Future Improvements](#-future-improvements)
+- [License](#-license)
 
-## Repository structure
+---
+
+## 🌟 Key Features
+
+### 1. 🤖 AI-Powered Formal Letter Generation
+
+- **Cloud LLM Pipeline:** Integrates the **Groq Cloud API** using `llama-3.3-70b-versatile` to transform brief student explanations such as Medical Leave, On-Duty, and Lab Permission requests into formal academic requisitions.
+- **Resilient Fallback Engine:** Provides deterministic rule-based template generation when cloud API limits or network failures occur.
+- **Draft & Preview Architecture:** Students can preview, customize, regenerate, and edit AI-generated drafts before final submission.
+
+### 2. 📄 Standardized Document & Verification Engine
+
+- **Academic Formatting:** Generates dynamic `.docx` documents containing the department header, student credentials, reference date, formal body, and student signature.
+- **Persistent Digital Signatures:** Stores signatures as Base64-encoded data in PostgreSQL `TEXT` columns so they can be dynamically resolved and embedded into generated documents.
+- **HoD Verification Seal:** Adds an authenticated green `✓ Digitally verified by the HoD` seal after departmental approval.
+- **QR/Barcode Tracking:** Generated documents contain unique tracking information that can be scanned by the physical letterbox system.
+
+### 3. 📡 IoT Hardware Tracking & Scanning
+
+- **Physical-to-Digital Synchronization:** Integrates ESP32/ESP8266 optical scanners with physical department Inbox/Outbox letter collection units.
+- **Barcode & QR Payloads:** Embeds unique tracking URLs and serial identifiers into generated documents.
+- **Automated State Transitions:** Physical scanning can advance an application's lifecycle, for example:
+
+```text
+Created → Submitted → Approved
+```
+
+### 4. 🔒 Authentication, Authorization & Security
+
+- **Multi-Identifier Authentication:** Supports sign-in using either a Register Number or Institute Email Address.
+- **Role-Based Access Control (RBAC):** Separates Student, Staff, and Admin authorization scopes.
+- **Staff Master Access:** Supports optional additional verification for privileged staff access.
+- **Secure Password Reset:** Uses time-limited, single-use password-reset tokens stored as SHA-256 hashes.
+- **Database Hardening:** Uses PostgreSQL/Supabase Row-Level Security (RLS) to restrict unauthorized database access.
+
+### 5. 📬 Real-Time Multi-Channel Notifications
+
+- **Transactional Email:** Uses the Mailjet HTTP API to send HTML and plain-text status notifications.
+- **SMS Gateway:** Uses Twilio to send E.164-normalized SMS notifications.
+- Notifications can be triggered during important workflow events such as:
+  - Letter generation
+  - Letter submission
+  - Departmental approval
+
+---
+
+## 🔄 System Architecture & Workflow
+
+```text
+                         ┌─────────────────────┐
+                         │   Student Portal    │
+                         │ Prompt / Upload     │
+                         └──────────┬──────────┘
+                                    │
+                                    ▼
+                         ┌─────────────────────┐
+                         │    Groq Cloud API   │
+                         │   Llama 3.3 70B     │
+                         └──────────┬──────────┘
+                                    │
+                                    ▼
+                         ┌─────────────────────┐
+                         │ Automated .docx     │
+                         │ Document Generator  │
+                         │ QR + Signature      │
+                         └──────────┬──────────┘
+                                    │
+                                    ▼
+                            Download / Print
+                                    │
+                                    ▼
+                    ┌────────────────────────────┐
+                    │ Physical Department       │
+                    │ Letter Drop Box           │
+                    └─────────────┬──────────────┘
+                                  │
+                         QR / Barcode Scan
+                                  │
+                                  ▼
+                    ┌────────────────────────────┐
+                    │ ESP32 / ESP8266 Scanner   │
+                    └─────────────┬──────────────┘
+                                  │ HTTP POST
+                                  ▼
+                    ┌────────────────────────────┐
+                    │ Flask Backend              │
+                    │ Render / WSGI              │
+                    └──────────┬─────────┬───────┘
+                               │         │
+                    State Update│         │Notifications
+                               ▼         ▼
+                    ┌───────────────┐  ┌───────────────────┐
+                    │ Supabase      │  │ Mailjet + Twilio  │
+                    │ PostgreSQL    │  │ Email + SMS       │
+                    │ RLS           │  └───────────────────┘
+                    └───────┬───────┘
+                            │
+                            ▼
+                    ┌────────────────┐
+                    │ Staff / HoD    │
+                    │ Dashboard      │
+                    │ Approval       │
+                    └────────────────┘
+```
+
+### Workflow
+
+1. A student creates a requisition through the web portal.
+2. The student provides a short description or uses the AI-assisted generation mode.
+3. The Groq LLM generates a formal academic letter.
+4. The student previews and edits the generated content.
+5. The Flask backend generates a standardized `.docx` document.
+6. A unique tracking identifier and QR/barcode payload are embedded into the document.
+7. The student downloads and prints the letter.
+8. The physical letter is deposited into the department letterbox.
+9. The ESP32/ESP8266 scanner reads the QR code or barcode.
+10. The scanner sends the scanned identifier to the Flask backend.
+11. The backend updates the application's status.
+12. Staff/HoD users can view and process the application through the dashboard.
+13. Email/SMS notifications are dispatched for relevant status changes.
+
+---
+
+## 🛠 Technology Stack
+
+| Layer | Technology / Service | Purpose |
+|---|---|---|
+| **Backend** | Flask 3.0+, Gunicorn | Production web application and WSGI server |
+| **Database** | PostgreSQL / Supabase | Persistent cloud database |
+| **ORM** | SQLAlchemy | Database abstraction and model management |
+| **AI / Generation** | Groq API + `llama-3.3-70b-versatile` | Formal letter generation |
+| **Documents** | `python-docx` | `.docx` document generation |
+| **QR Generation** | `qrcode` | QR code generation |
+| **Barcode Generation** | `python-barcode` | Barcode generation |
+| **Image Processing** | Pillow | Signature and document image processing |
+| **Email** | Mailjet v3.1 API | Transactional email delivery |
+| **SMS** | Twilio API | SMS notifications |
+| **IoT** | ESP32 / ESP8266 | Physical letterbox scanning |
+| **Embedded Software** | MicroPython / C++ | Scanner firmware and HTTP communication |
+| **Hosting** | Render | Cloud deployment |
+| **Version Control / CI** | GitHub / GitHub Actions | Source control and automation |
+
+---
+
+## 📂 Project Directory Structure
 
 ```text
 .
 ├── app.py
-├── Procfile
-├── README.md
-├── requirements.txt
-├── .env.example
-├── scripts/
-│   └── migrate_sqlite_to_postgres.py
+│
 ├── letterbox/
 │   ├── __init__.py
+│   ├── ai_generation.py
 │   ├── auth.py
 │   ├── database.py
 │   ├── extensions.py
 │   ├── models.py
+│   ├── routes_admin.py
 │   ├── routes_auth.py
-│   ├── routes_staff.py
+│   ├── routes_esp.py
 │   ├── routes_student.py
 │   ├── services.py
 │   └── settings.py
-├── templates/
-│   ├── admin.html
-│   ├── form.html
-│   ├── login.html
-│   ├── staff_dashboard.html
-│   ├── student_dashboard.html
-│   ├── status.html
-│   ├── student_scan.html
-│   ├── scanners.html
-│   └── ...
+│
 ├── static/
-│   ├── generated_letters/
-│   ├── qr_codes/
-│   └── barcodes/
-├── sent_emails/
-└── docs/
+│   └── ...
+│
+├── templates/
+│   └── ...
+│
+├── requirements.txt
+├── Procfile
+├── .gitignore
+├── .env
+└── README.md
 ```
 
-## Technology stack
+### Core Modules
 
-- Python 3
-- Flask 3
-- Flask-SQLAlchemy
-- Flask-WTF
-- Gunicorn
-- PostgreSQL (recommended for production)
-- `python-docx` for DOCX generation
-- `qrcode` for QR code generation
-- Optional `pyzbar` and `Pillow` for barcode/QR decoding
-- Mailjet transactional email support via the `requests` HTTP client
-- Ollama local model support via its HTTP API
+| File | Responsibility |
+|---|---|
+| `app.py` | Application bootstrap and entry point |
+| `letterbox/__init__.py` | Flask application factory |
+| `letterbox/ai_generation.py` | Groq LLM integration, prompts, and AI generation |
+| `letterbox/auth.py` | Authentication, RBAC helpers, validation, and session handling |
+| `letterbox/database.py` | Database initialization, migrations, and seeding |
+| `letterbox/extensions.py` | SQLAlchemy, CSRF, and external service initialization |
+| `letterbox/models.py` | Database models such as users, letters, tokens, and scans |
+| `letterbox/routes_admin.py` | Staff/Admin dashboard and verification routes |
+| `letterbox/routes_auth.py` | Sign-in, sign-up, and password-reset flows |
+| `letterbox/routes_esp.py` | ESP32/ESP8266 IoT endpoints |
+| `letterbox/routes_student.py` | Student requisition creation and tracking |
+| `letterbox/services.py` | Document generation, encoding, and notification services |
+| `letterbox/settings.py` | Centralized environment configuration |
+| `static/` | CSS, images, logos, and frontend assets |
+| `templates/` | Jinja2 HTML templates |
+| `requirements.txt` | Python dependencies |
+| `Procfile` | Production start command for Render |
+| `.gitignore` | Files excluded from Git |
 
-## Prerequisites
+---
 
-- Python 3.11+ (recommended)
-- `pip`
-- PostgreSQL for production deployments (optional for local SQLite)
-- Mailjet API credentials and a verified sender email for email notifications (optional)
+## 🗄 Database & Security Architecture
 
-## Local development setup
+The application uses **PostgreSQL hosted through Supabase** for persistent cloud storage.
 
-1. Create and activate a virtual environment:
+### Database Tables
+
+#### 1. `users`
+
+Stores:
+
+- User credentials
+- Hashed passwords
+- User roles:
+  - `student`
+  - `staff`
+  - `admin`
+- Institute/register identifiers
+- Stored Base64 signature data
+
+#### 2. `letters`
+
+Stores:
+
+- Unique application/tracking identifiers
+- Student requisition information
+- AI generation mode
+- AI-generated descriptions
+- Application status
+- Status timestamps
+- Generated document information
+
+Typical status flow:
+
+```text
+Created → Submitted → Approved
+```
+
+#### 3. `password_reset_tokens`
+
+Stores:
+
+- SHA-256 hashed password-reset tokens
+- Token expiration information
+- Single-use reset state
+
+Password reset tokens are designed to expire after a limited period.
+
+#### 4. `scans`
+
+Stores hardware scanner audit information, including:
+
+- Raw scanner input
+- Device identifier
+- Scan action
+- Timestamp
+- Related application information
+
+### Row-Level Security
+
+Supabase/PostgreSQL Row-Level Security can be enabled on all application tables:
+
+```sql
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE letters ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE scans ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE password_reset_tokens ENABLE ROW LEVEL SECURITY;
+```
+
+> **Important:** The application backend should use appropriately secured server-side PostgreSQL credentials. Never expose database credentials, API secrets, or service-role credentials in client-side code.
+
+---
+
+## 📡 Hardware & IoT Scanner Interface
+
+The physical letterbox uses an **ESP32/ESP8266 microcontroller** connected to a compatible 1D/2D optical scanner.
+
+When a student deposits a printed letter, the scanner reads the document's QR code or barcode and sends the tracking information to the Flask backend.
+
+### Hardware Endpoint
+
+```http
+POST /api/esp/scan
+```
+
+### Headers
+
+```http
+Content-Type: application/json
+X-ESP-Token: <ESP_TOKEN>
+```
+
+### Request Payload
+
+```json
+{
+  "code": "https://letter-tracking-ee-mit.onrender.com/submit?id=a1b2c3d4",
+  "device_id": "INBOX_NODE_01",
+  "action": "submit"
+}
+```
+
+### Example Response
+
+```json
+{
+  "status": "ok",
+  "app_id": "a1b2c3d4",
+  "new_status": "Submitted"
+}
+```
+
+### IoT Communication Flow
+
+```text
+QR / Barcode
+     │
+     ▼
+Optical Scanner
+     │
+     ▼
+ESP32 / ESP8266
+     │
+     │ HTTP POST
+     ▼
+Flask API
+     │
+     ▼
+Application Database
+     │
+     ├── Update Status
+     └── Trigger Notifications
+```
+
+The shared `ESP_TOKEN` should be treated as a secret and must not be hard-coded into publicly accessible source code.
+
+---
+
+## ⚙️ Environment Variables
+
+Create a `.env` file for local development or configure the following variables in the Render dashboard.
+
+| Variable | Required | Description | Example |
+|---|:---:|---|---|
+| `DATABASE_URL` | Yes | PostgreSQL/Supabase connection string | `postgresql+psycopg2://user:pass@host:6543/postgres?sslmode=require` |
+| `SECRET_KEY` | Yes | Flask cryptographic session key | Generate a secure random value |
+| `APP_BASE_URL` | Yes | Application's public base URL | `https://your-app.onrender.com` |
+| `GROQ_API_KEY` | Yes | Groq Cloud API key | `gsk_xxxxxxxxxxxx` |
+| `ESP_TOKEN` | Optional | Shared IoT authentication token | `secure_device_secret_token` |
+| `MAILJET_API_KEY` | Optional | Mailjet public API key | `xxxxxxxxxxxxxxxx` |
+| `MAILJET_SECRET_KEY` | Optional | Mailjet secret API key | `xxxxxxxxxxxxxxxx` |
+| `MAILJET_SENDER_EMAIL` | Optional | Verified Mailjet sender address | `letterbox@institute.edu` |
+| `TWILIO_ACCOUNT_SID` | Optional | Twilio account identifier | `ACxxxxxxxxxxxxxxxx` |
+| `TWILIO_AUTH_TOKEN` | Optional | Twilio authentication token | `xxxxxxxxxxxxxxxx` |
+| `TWILIO_FROM_NUMBER` | Optional | Twilio virtual number | `+1xxxxxxxxxx` |
+
+### Example Local `.env`
+
+```env
+DATABASE_URL=sqlite:///database.db
+SECRET_KEY=replace_with_a_secure_random_secret
+APP_BASE_URL=http://127.0.0.1:5000
+GROQ_API_KEY=gsk_your_groq_key_here
+
+# Optional IoT
+ESP_TOKEN=your_secure_esp_token
+
+# Optional Mailjet
+MAILJET_API_KEY=
+MAILJET_SECRET_KEY=
+MAILJET_SENDER_EMAIL=
+
+# Optional Twilio
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_FROM_NUMBER=
+```
+
+### Generating a Secure Secret Key
+
+For local development, a random secret can be generated with Python:
+
+```python
+import secrets
+print(secrets.token_hex(32))
+```
+
+> **Never commit `.env` or real API keys to GitHub.**
+
+---
+
+## 💻 Local Installation & Setup
+
+### Prerequisites
+
+Make sure the following are installed:
+
+- Python 3.11 or 3.12
+- Git
+- pip
+- A supported PostgreSQL database or SQLite for local development
+- API credentials for the services you intend to enable
+
+### 1. Clone the Repository
+
+
+
+```bash
+git clone https://github.com/HARIPRASATH-S-8030/Letter_Tracking_EE_MIT
+cd Letter_Tracking_EE_MIT
+```
+
+### 2. Create a Virtual Environment
+
+#### Windows PowerShell
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-2. Install dependencies:
+#### Linux / macOS
 
-```powershell
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 3. Install Dependencies
+
+```bash
 pip install -r requirements.txt
 ```
 
-3. Copy the example environment file:
+### 4. Configure Environment Variables
 
-```powershell
-Copy-Item .env.example .env
+Create a `.env` file in the project root:
+
+```env
+DATABASE_URL=sqlite:///database.db
+SECRET_KEY=replace_with_a_secure_random_secret
+APP_BASE_URL=http://127.0.0.1:5000
+GROQ_API_KEY=gsk_your_groq_key_here
 ```
 
-4. Edit `.env` and configure your values.
+Add Mailjet, Twilio, and ESP configuration if those services are enabled.
 
-5. Start the application:
+### 5. Run the Development Server
 
-```powershell
+```bash
 python app.py
 ```
 
-6. Visit:
+The application should then be available at:
 
-- Student login: `http://127.0.0.1:5000/login`
-- Staff login: `http://127.0.0.1:5000/staff/login`
-
-## Environment configuration
-
-Use `.env` or actual environment variables to configure the app. Important values include:
-
-- `APP_ENV` — `development` or `production`
-- `SECRET_KEY` — used for session signing
-- `DATABASE_URL` — SQLite or PostgreSQL connection string
-- `APP_BASE_URL` — public base URL for generated links
-- `INSTITUTE_NAME`, `DEPARTMENT_TITLE`, `CAMPUS_TITLE`, `CITY_TITLE`
-- `LETTER_HEADING` — letter heading text
-- `INSTITUTE_EMAIL_DOMAINS` — comma-separated allowed domains for student signup
-- `ALLOW_STUDENT_SELF_SIGNUP` — `true` / `false`
-- `INITIAL_STAFF_USERNAME`, `INITIAL_STAFF_PASSWORD`, `INITIAL_STAFF_EMAIL`
-- `ADMIN_ACCESS_KEY` — optional staff login key
-- `RECAPTCHA_SITE_KEY`, `RECAPTCHA_SECRET_KEY`
-- `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, `MAILJET_SENDER_EMAIL`, `MAILJET_TIMEOUT`
-- `SMS_ENABLED`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`
-- `ESP_TOKEN`, `ESP32_HOST`
-- `AI_OLLAMA_URL`, `AI_MODEL`, `AI_TIMEOUT`, `AI_MAX_BODY_LENGTH`
-- `SESSION_IDLE_MINUTES` — automatic logout after inactivity; defaults to 5 minutes
-
-### Local AI letter generation
-
-Install Ollama and download the local model:
-
-```powershell
-ollama pull qwen2.5:1.5b-instruct
-ollama serve
+```text
+http://127.0.0.1:5000
 ```
 
-Student descriptions are sent only to the local Ollama service at `AI_OLLAMA_URL`. The application stores the original description separately from the generated subject and body, validates the structured response, and then places only the validated variable content into the existing DOCX/TXT template. If Ollama is unavailable or output validation fails, no letter record is created.
+---
 
-### Recommended production settings
+## 🚀 Deployment on Render
 
-```env
-APP_ENV=production
-SECRET_KEY=replace-with-a-long-random-secret
-DATABASE_URL=postgresql://user:pass@host:5432/dbname
-APP_BASE_URL=https://your-app.example.com
-SESSION_COOKIE_SECURE=true
-SESSION_COOKIE_SAMESITE=Lax
-INSTITUTE_EMAIL_DOMAINS=mit.edu,mitindia.edu
-INITIAL_STAFF_USERNAME=officeadmin
-INITIAL_STAFF_PASSWORD=ChangeThisImmediately123!
-INITIAL_STAFF_EMAIL=officeadmin@mit.edu
-ADMIN_ACCESS_KEY=replace-with-a-second-secret
-RECAPTCHA_SITE_KEY=...
-RECAPTCHA_SECRET_KEY=...
-MAILJET_API_KEY=your-mailjet-api-key
-MAILJET_SECRET_KEY=your-mailjet-secret-key
-MAILJET_SENDER_EMAIL=no-reply@your-verified-domain.example
-MAILJET_TIMEOUT=15
-SMS_ENABLED=false
-SMS_DEFAULT_COUNTRY_CODE=+91
-TWILIO_ACCOUNT_SID=...
-TWILIO_AUTH_TOKEN=...
-TWILIO_FROM_NUMBER=+1xxxxxxxxxx
-ESP_TOKEN=optional-esp-token
-ESP32_HOST=esp-device.local
+The application is designed to run as a Python web service on Render.
+
+### 1. Push the Project to GitHub
+
+```bash
+git add .
+git commit -m "Prepare application for deployment"
+git push origin main
 ```
 
-## Running in production
+### 2. Create a Render Web Service
 
-The application is ready for WSGI deployment. Example using Gunicorn:
+In Render:
 
-```powershell
+1. Create a new **Web Service**.
+2. Connect the GitHub repository.
+3. Select the appropriate branch.
+4. Configure the Python environment.
+
+### 3. Build Command
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Start Command
+
+```bash
 gunicorn app:app
 ```
 
-A `Procfile` is included for platforms like Render:
+### 5. Configure Environment Variables
+
+Add the required variables in the Render **Environment** section:
 
 ```text
-web: gunicorn app:app
+DATABASE_URL
+SECRET_KEY
+APP_BASE_URL
+GROQ_API_KEY
+ESP_TOKEN
+MAILJET_API_KEY
+MAILJET_SECRET_KEY
+MAILJET_SENDER_EMAIL
+TWILIO_ACCOUNT_SID
+TWILIO_AUTH_TOKEN
+TWILIO_FROM_NUMBER
 ```
 
-## Database options
+Only configure the optional Mailjet, Twilio, and ESP variables if those services are being used.
 
-- Local development: default SQLite `database.db`
-- Production: PostgreSQL via `DATABASE_URL`
+### 6. Deploy
 
-### Migrate SQLite to PostgreSQL
+After saving the configuration, Render will:
 
-If you started with SQLite and want to move to PostgreSQL:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\migrate_sqlite_to_postgres.py
+```text
+GitHub Repository
+       │
+       ▼
+   Build Service
+       │
+       ▼
+pip install -r requirements.txt
+       │
+       ▼
+gunicorn app:app
+       │
+       ▼
+ Flask Application
 ```
 
-Or specify a source SQLite file:
+---
 
-```powershell
-.\.venv\Scripts\python.exe scripts\migrate_sqlite_to_postgres.py database.db
+## 🔐 Security Notes
+
+This project handles authentication credentials, application information, digital signatures, API credentials, and IoT device authentication tokens. Follow these practices when deploying it publicly.
+
+### Never Commit Secrets
+
+Add sensitive files to `.gitignore`:
+
+```gitignore
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+instance/
+*.db
 ```
 
-## Application capabilities
+### Protect API Credentials
 
-### Student users
+Do not place the following directly in source code:
 
-- Register and login
-- Create letter requests with name, email, phone, subject, and description
-- Download generated letter documents
-- Track status through the workflow
-- Scan QR codes for status lookups
+- Groq API keys
+- Mailjet credentials
+- Twilio credentials
+- PostgreSQL passwords
+- Flask secret keys
+- ESP authentication tokens
 
-### Staff and admin users
+Use environment variables instead.
 
-- Login with staff credentials and optional admin key
-- View dashboard with letter counts by status
-- Review and change letter status to `Submitted`, `Pending`, or `Approved`
-- Generate new QR placeholders
-- Scan QR codes or barcode uploads
-- Manage staff accounts via admin panel
+### Protect the IoT Endpoint
 
-### QR / hardware support
+The ESP endpoint should validate the `X-ESP-Token` before processing scanner requests.
 
-- Every letter request generates a QR code linked to its status page
-- ESP device integration via `/esp_submit`, `/esp_approve`, or `/esp_action`
-- ESP32 and ESP8266 devices can POST status updates directly to Render using `/esp_submit`, `/esp_approve`, or `/esp_action`. JSON, form-encoded, and query-string payloads are supported; the scanned value may be sent as `id`, `app_id`, `code`, `barcode`, or `qr`.
-- Use `X-ESP-Token` header or `token` body field when `ESP_TOKEN` is configured
-- Example device payload:
+### Use HTTPS
 
-```json
-{
-  "id": "LETTER123",
-  "action": "submit",
-  "token": "your-esp-token"
-}
+For production deployment, use HTTPS for:
+
+- Student portal access
+- Authentication
+- Password-reset links
+- IoT HTTP requests
+- API communication
+
+### Database Access
+
+Do not expose PostgreSQL credentials to the browser or embedded IoT firmware.
+
+---
+
+## 🔁 Application Status Lifecycle
+
+A typical requisition follows this lifecycle:
+
+```text
+┌─────────┐
+│ Created │
+└────┬────┘
+     │
+     │ Physical letter submitted
+     ▼
+┌───────────┐
+│ Submitted │
+└─────┬─────┘
+      │
+      │ Staff / HoD verification
+      ▼
+┌──────────┐
+│ Approved │
+└──────────┘
 ```
 
+The IoT scanner provides the physical-to-digital transition between the printed document and the web application's tracking record.
 
-## Security and reliability
+---
 
-- CSRF protection via Flask-WTF
-- Password hashing using Werkzeug
-- Role-aware access control for student, staff, and admin routes
-- Secure session cookies and configurable `SESSION_COOKIE_SECURE`
-- Optional reCAPTCHA on authentication and signup forms
-- Local email audit copies in `sent_emails/`
-- Structured stdout logging for cloud hosting
+## 📊 Project Highlights
 
-## File generation and storage
+The project combines several engineering domains into a single workflow:
 
-- QR codes are stored in `static/qr_codes/`
-- Generated letters are stored in `static/generated_letters/`
-- Barcode images are optionally stored in `static/barcodes/`
-- Generated artifacts are recreated automatically if missing in ephemeral storage
+- **Web Application Development**
+- **Artificial Intelligence / LLM Integration**
+- **Internet of Things**
+- **Embedded Systems**
+- **Cloud Computing**
+- **Database Management**
+- **Document Automation**
+- **QR / Barcode Identification**
+- **Authentication & Authorization**
+- **Transactional Communication**
+- **Cloud Deployment**
 
-## Deployment recommendations
+This makes the system suitable as an academic demonstration of an integrated **IoT + AI + Cloud + Web** application.
 
-- Use PostgreSQL in production
-- Enable `SESSION_COOKIE_SECURE=true`
-- Set a strong `SECRET_KEY` and staff access key
-- Configure Mailjet for real email notifications
-- Protect the app behind HTTPS
+---
 
-## Troubleshooting
+## 🔮 Future Improvements
 
-- If email delivery fails, verify `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, and ensure `MAILJET_SENDER_EMAIL` is a verified Mailjet sender. The API response is logged without exposing credentials.
-- The `sent_emails/` directory is an audit copy only; it is not proof that Mailjet accepted or delivered the message.
-- For SMS, configure a Twilio account and an E.164 sender number. Indian 10-digit student numbers are normalized with `SMS_DEFAULT_COUNTRY_CODE` (default `+91`).
-- See `docs/esp_https.md` for ESP32 and ESP8266 HTTPS POST examples.
-- If reCAPTCHA is enabled, ensure both site and secret keys are valid
-- If QR generation fails, verify `qrcode` and `Pillow` are installed
-- If document downloads fallback to `.txt`, check `python-docx` availability
+Potential extensions include:
 
-## Notes
+- [ ] Real-time WebSocket status updates
+- [ ] Dedicated ESP32 firmware repository
+- [ ] Offline scan buffering when the network is unavailable
+- [ ] Automatic retry and queue management for notifications
+- [ ] Admin analytics and reporting dashboards
+- [ ] Audit-log visualization
+- [ ] More advanced document verification
+- [ ] Digital certificate/signature infrastructure
+- [ ] Mobile-friendly student interface
+- [ ] Docker-based deployment
+- [ ] Automated database migrations
+- [ ] Automated unit and integration testing
+- [ ] CI/CD quality gates through GitHub Actions
 
-- This repository is designed as an academic/demo system for campus letter workflows.
-- The code includes a developer helper route at `/debug-users` for user inspection.
+---
 
-## License
+## 🤝 Contributing
 
-Use this repository under your preferred academic or open-source license.
+Contributions, improvements, and bug fixes are welcome.
+
+A typical contribution workflow is:
+
+```bash
+git checkout -b feature/your-feature
+git add .
+git commit -m "Add your feature"
+git push origin feature/your-feature
+```
+
+Then open a Pull Request on GitHub.
+
+---
+
+## 📄 License
+
+This project is intended for academic and educational purposes.
+
+If this repository is released publicly, add the appropriate license file and update this section with the selected license terms.
+
+---
+
+## 👨‍💻 Project
+
+**IoT-Enabled Letter Tracking & Automated Academic Requisition System**
+
+Built using:
+
+**Flask · PostgreSQL · Supabase · Groq Llama 3.3 · ESP32/ESP8266 · Mailjet · Twilio · Render**
+
