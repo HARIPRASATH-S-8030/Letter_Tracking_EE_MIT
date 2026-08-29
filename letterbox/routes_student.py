@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import os
 import secrets
 
@@ -12,7 +13,8 @@ from werkzeug.utils import secure_filename
 from .ai_generation import AIGenerationError, REQUEST_TYPES, generate_letter_content, validate_generated_content
 from . import settings
 from .auth import get_user_by_username, is_valid_phone, login_required, roles_required, staff_key_required
-from .extensions import csrf, db
+from .database import ensure_dirs
+from .extensions import db
 from .models import Letter, ScanLog
 from .services import (
     ensure_letter_file,
@@ -91,7 +93,6 @@ def register_student_routes(app):
         name = user.name.strip()
         email = user.email.strip()
 
-        # Read phone from form input first, fallback to user profile
         form_phone = request.form.get("phone", "").strip()
         phone = form_phone if form_phone else (user.phone.strip() if user.phone else "")
 
@@ -108,13 +109,20 @@ def register_student_routes(app):
         using_preview = generation_mode == "ai" and action in {"accept", "regenerate"}
 
         if using_preview:
-            if preview.get("token") != preview_token:
-                return render_template("form.html", errors=["This preview has expired. Please generate it again."], request_types=REQUEST_TYPES, generation_mode="ai"), 400
-            request_type = preview.get("request_type", "")
-            original_description = preview.get("original_description", "")
-            name = preview.get("name", name)
-            email = preview.get("email", email)
-            phone = preview.get("phone", phone)
+            if not preview or preview.get("token") != preview_token:
+                return render_template(
+                    "form.html",
+                    errors=["This preview has expired. Please generate it again."],
+                    name=name,
+                    email=email,
+                    phone=phone,
+                    request_types=REQUEST_TYPES,
+                    request_type=request_type or "Other",
+                    generation_mode="ai",
+                    ai_description=original_description,
+                ), 400
+            request_type = preview.get("request_type", request_type)
+            original_description = preview.get("original_description", original_description)
 
         errors = []
         if len(name) < 2:
@@ -132,7 +140,7 @@ def register_student_routes(app):
         if not using_preview and len(original_description) < 10:
             errors.append("Description must be at least 10 characters.")
         if not using_preview and len(original_description) > settings.MAX_LETTER_DESCRIPTION_LENGTH:
-            errors.append(f"Description must stay within {settings.MAX_LETTER_DESCRIPTION_LENGTH} characters so the letter fits on one page.")
+            errors.append(f"Description must stay within {settings.MAX_LETTER_DESCRIPTION_LENGTH} characters.")
         if signature and signature.filename:
             signature.stream.seek(0, os.SEEK_END)
             signature_size = signature.stream.tell()
@@ -158,9 +166,9 @@ def register_student_routes(app):
                 generation_mode=generation_mode,
                 subject=subject,
                 description=original_description,
+                ai_description=original_description,
             ), 400
 
-        # Persist phone to profile automatically if missing
         if phone and not user.phone:
             user.phone = phone
             db.session.commit()
@@ -180,29 +188,38 @@ def register_student_routes(app):
                     generation_mode=generation_mode,
                     ai_description=original_description,
                 ), 503
-            preview_token = secrets.token_urlsafe(32)
+
+            preview_token = secrets.token_urlsafe(16)
+            temp_sig_name = ""
+            if signature and signature.filename:
+                try:
+                    ensure_dirs()
+                    temp_sig_name = f"temp_sig_{preview_token}.png"
+                    local_path = os.path.join(settings.SIGNATURE_DIR, temp_sig_name)
+                    signature.stream.seek(0)
+                    signature.save(local_path)
+                except Exception:
+                    pass
+
             session["ai_preview"] = {
                 "token": preview_token,
-                "name": name,
-                "email": email,
-                "phone": phone,
                 "request_type": request_type,
                 "original_description": original_description,
                 "subject": generated["subject"],
                 "body": generated["body"],
+                "temp_sig_file": temp_sig_name,
             }
-            if signature and signature.filename:
-                try:
-                    session["ai_preview"]["signature_file_name"] = save_signature_image(signature, preview_token)
-                except Exception:
-                    return render_template("form.html", errors=["The signature file could not be read as a valid image."], request_types=REQUEST_TYPES, generation_mode="ai"), 400
             return render_template(
                 "form.html",
+                name=name,
+                email=email,
+                phone=phone,
                 preview=generated,
                 preview_token=preview_token,
                 request_types=REQUEST_TYPES,
                 request_type=request_type,
                 generation_mode="ai",
+                ai_description=original_description,
             )
 
         if generation_mode == "ai":
@@ -210,51 +227,77 @@ def register_student_routes(app):
                 try:
                     generated = generate_letter_content(preview["request_type"], preview["original_description"])
                 except AIGenerationError as exc:
-                    return render_template("form.html", errors=[str(exc) or "Letter generation is temporarily unavailable."], request_types=REQUEST_TYPES, generation_mode="ai"), 503
+                    return render_template(
+                        "form.html",
+                        errors=[str(exc) or "Letter generation is temporarily unavailable."],
+                        name=name,
+                        email=email,
+                        phone=phone,
+                        request_types=REQUEST_TYPES,
+                        request_type=preview.get("request_type", "Other"),
+                        generation_mode="ai",
+                        ai_description=preview.get("original_description", ""),
+                    ), 503
                 preview.update(generated)
                 session["ai_preview"] = preview
-                return render_template("form.html", preview=generated, preview_token=preview_token, request_types=REQUEST_TYPES, request_type=preview["request_type"], generation_mode="ai")
-            request_type = preview["request_type"]
-            name = preview["name"]
-            email = preview["email"]
-            phone = preview["phone"]
-            original_description = preview["original_description"]
+                return render_template(
+                    "form.html",
+                    name=name,
+                    email=email,
+                    phone=phone,
+                    preview=generated,
+                    preview_token=preview_token,
+                    request_types=REQUEST_TYPES,
+                    request_type=preview["request_type"],
+                    generation_mode="ai",
+                    ai_description=preview.get("original_description", ""),
+                )
+
+            request_type = preview.get("request_type", "Other")
+            original_description = preview.get("original_description", "")
             try:
                 accepted = validate_generated_content(
                     {"subject": request.form.get("preview_subject", ""), "body": request.form.get("preview_body", "")},
                     original_description,
                 )
             except AIGenerationError:
-                return render_template("form.html", errors=["The edited letter content is invalid. Please review and try again."], preview=preview, preview_token=preview_token, request_types=REQUEST_TYPES, request_type=request_type, generation_mode="ai"), 400
+                return render_template(
+                    "form.html",
+                    errors=["The edited letter content is invalid. Please review and try again."],
+                    name=name,
+                    email=email,
+                    phone=phone,
+                    preview=preview,
+                    preview_token=preview_token,
+                    request_types=REQUEST_TYPES,
+                    request_type=request_type,
+                    generation_mode="ai",
+                    ai_description=original_description,
+                ), 400
             subject = accepted["subject"]
             description = accepted["body"]
-            content_source = "ai_edited" if subject != preview["subject"] or description != preview["body"] else "ai_generated"
-            session.pop("ai_preview", None)
+            content_source = "ai_edited" if subject != preview.get("subject") or description != preview.get("body") else "ai_generated"
         else:
             description = original_description
             content_source = "manual"
 
         app_id = generate_app_id()
-        signature_file_name = preview.get("signature_file_name") if generation_mode == "ai" else None
+        signature_b64 = None
+
         if signature and signature.filename:
             try:
-                signature_file_name = save_signature_image(signature, app_id)
+                signature_b64 = save_signature_image(signature, app_id)
             except Exception:
-                return render_template(
-                    "form.html",
-                    errors=["The signature file could not be read as a valid image."],
-                    app_id="",
-                    name=name,
-                    email=email,
-                    request_types=REQUEST_TYPES,
-                    request_type=request_type,
-                    phone=phone,
-                    generation_mode=generation_mode,
-                    subject=subject,
-                    description=description,
-                ), 400
-        if not signature_file_name:
-            signature_file_name = user.signature_file_name
+                pass
+        elif generation_mode == "ai" and preview.get("temp_sig_file"):
+            temp_path = os.path.join(settings.SIGNATURE_DIR, preview["temp_sig_file"])
+            if os.path.exists(temp_path):
+                with open(temp_path, "rb") as handle:
+                    raw_bytes = handle.read()
+                    signature_b64 = f"data:image/png;base64,{base64.b64encode(raw_bytes).decode('utf-8')}"
+
+        if not signature_b64:
+            signature_b64 = user.signature_file_name
 
         letter = Letter(
             app_id=app_id,
@@ -269,12 +312,14 @@ def register_student_routes(app):
             original_description=original_description,
             generated_subject=subject if generation_mode == "ai" else None,
             generated_body=description if generation_mode == "ai" else None,
-            signature_file_name=signature_file_name,
+            signature_file_name=signature_b64,
             status=settings.STATUS_CREATED,
             created_at=utc_now(),
         )
         db.session.add(letter)
         db.session.commit()
+
+        session.pop("ai_preview", None)
 
         output_path = ensure_letter_file(letter)
         notifications = notify_letter_created(letter)

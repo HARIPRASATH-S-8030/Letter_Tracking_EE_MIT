@@ -116,7 +116,8 @@ def resolve_signature_file(signature_data_or_name: str | None, identifier: str) 
                 handle.write(raw_bytes)
             return target_path
         except Exception as exc:
-            current_app.logger.warning("Failed to decode base64 signature for %s: %s", identifier, exc)
+            if current_app:
+                current_app.logger.warning("Failed to decode signature: %s", exc)
             return ""
 
     disk_path = os.path.join(settings.SIGNATURE_DIR, signature_data_or_name)
@@ -297,7 +298,8 @@ def create_qr_assets(letter: Letter) -> tuple[str, str | None]:
             Code128(payload, writer=ImageWriter()).save(barcode_filebase)
             barcode_path = f"{barcode_filebase}.png"
         except Exception as exc:
-            current_app.logger.warning("Failed to generate barcode for %s: %s", letter.app_id, exc)
+            if current_app:
+                current_app.logger.warning("Failed to generate barcode for %s: %s", letter.app_id, exc)
 
     db.session.commit()
     return qr_path, barcode_path

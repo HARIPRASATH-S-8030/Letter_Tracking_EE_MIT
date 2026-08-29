@@ -28,7 +28,7 @@ def column_exists(table_name: str, column_name: str) -> bool:
 
 
 def ensure_legacy_compatible_schema() -> None:
-    """Apply lightweight schema updates so older local SQLite databases still work."""
+    """Apply schema updates to support long Base64 strings in PostgreSQL and SQLite."""
     inspector = inspect(db.engine)
     table_names = set(inspector.get_table_names())
 
@@ -40,7 +40,12 @@ def ensure_legacy_compatible_schema() -> None:
         if not column_exists("users", "phone"):
             db.session.execute(text("ALTER TABLE users ADD COLUMN phone VARCHAR(30)"))
         if not column_exists("users", "signature_file_name"):
-            db.session.execute(text("ALTER TABLE users ADD COLUMN signature_file_name VARCHAR(255)"))
+            db.session.execute(text("ALTER TABLE users ADD COLUMN signature_file_name TEXT"))
+        else:
+            try:
+                db.session.execute(text("ALTER TABLE users ALTER COLUMN signature_file_name TYPE TEXT"))
+            except Exception:
+                db.session.rollback()
 
     if "letters" in table_names:
         if not column_exists("letters", "generated_file_name"):
@@ -48,7 +53,12 @@ def ensure_legacy_compatible_schema() -> None:
         if not column_exists("letters", "qr_file_name"):
             db.session.execute(text("ALTER TABLE letters ADD COLUMN qr_file_name VARCHAR(255)"))
         if not column_exists("letters", "signature_file_name"):
-            db.session.execute(text("ALTER TABLE letters ADD COLUMN signature_file_name VARCHAR(255)"))
+            db.session.execute(text("ALTER TABLE letters ADD COLUMN signature_file_name TEXT"))
+        else:
+            try:
+                db.session.execute(text("ALTER TABLE letters ALTER COLUMN signature_file_name TYPE TEXT"))
+            except Exception:
+                db.session.rollback()
         if not column_exists("letters", "generation_mode"):
             db.session.execute(text("ALTER TABLE letters ADD COLUMN generation_mode VARCHAR(10) NOT NULL DEFAULT 'manual'"))
         if not column_exists("letters", "content_source"):
@@ -67,12 +77,14 @@ def ensure_legacy_compatible_schema() -> None:
             db.session.execute(text("ALTER TABLE scans ADD COLUMN created_at TIMESTAMP"))
             db.session.execute(text("UPDATE scans SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"))
         except Exception:
-            # Older SQLite files may already contain a timestamp column named differently.
             db.session.rollback()
         else:
             db.session.commit()
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 
 def seed_user(username: str, password: str, role: str, name: str, email: str) -> None:
@@ -102,21 +114,13 @@ def ensure_initial_staff() -> None:
     password = settings.INITIAL_STAFF_PASSWORD
     email = settings.INITIAL_STAFF_EMAIL
 
-    logger.debug("ensure_initial_staff() running")
-    logger.debug("INITIAL_STAFF_USERNAME=%r", username)
-    logger.debug("INITIAL_STAFF_EMAIL=%r", email)
-    logger.debug("INITIAL_STAFF_PASSWORD set: %s", bool(password))
-
     if not username or not password or not email:
-        logger.debug("ensure_initial_staff() skipped because one or more required env vars are missing")
         return
 
     existing = db.session.get(User, username)
-    logger.debug("existing user found: %s", bool(existing))
     if existing:
         return
 
-    logger.debug("creating initial staff user %r", username)
     db.session.add(
         User(
             username=username,
@@ -127,7 +131,6 @@ def ensure_initial_staff() -> None:
         )
     )
     db.session.commit()
-    logger.debug("created initial staff user %r", username)
 
 
 def seed_initial_users() -> None:
@@ -146,10 +149,6 @@ def seed_initial_users() -> None:
         settings.INITIAL_STAFF_NAME,
         settings.INITIAL_STAFF_EMAIL,
     )
-
-    if settings.SEED_DEMO_USERS:
-        seed_user("student1", "Password123!", "student", "Demo Student", "student@example.com")
-        seed_user("staff1", "Password123!", "staff", "Demo Staff", "staff@example.com")
 
 
 def init_db() -> None:
