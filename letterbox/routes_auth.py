@@ -64,7 +64,6 @@ def register_auth_routes(app):
             if not captcha_ok:
                 return render_template("login.html", error=captcha_error, message=message), 400
 
-            # Allow login using either register number or email
             normalized_id = normalize_username(identifier)
             normalized_mail = normalize_email(identifier)
             user = User.query.filter(
@@ -189,6 +188,7 @@ def register_auth_routes(app):
                         f"<p>Hello {html.escape(user.name)},</p>"
                         "<p>We received a request to reset your password.</p>"
                         f'<p><a href="{html.escape(reset_url, quote=True)}">Reset your password</a></p>'
+                        f"<p>Link: {html.escape(reset_url)}</p>"
                         "<p>This link expires in 30 minutes. If you did not request this, you can ignore this email.</p>"
                         "</body></html>"
                     ),
@@ -226,12 +226,18 @@ def register_auth_routes(app):
             if errors:
                 return render_template("reset_password.html", valid=True, error=" ".join(errors), token=token), 400
 
-            if not PasswordResetToken.consume_for_user(user, token):
-                return render_template("reset_password.html", valid=False, error="This password reset link has already been used or expired."), 400
-
             user.password_hash = generate_password_hash(password)
+
+            reset_record.used = True
+            PasswordResetToken.query.filter(
+                PasswordResetToken.user_id == user.username,
+                PasswordResetToken.id != reset_record.id,
+            ).update({PasswordResetToken.used: True})
+
             db.session.add(user)
+            db.session.add(reset_record)
             db.session.commit()
+
             return redirect(url_for("login", message="Your password has been reset successfully. Please sign in."))
 
         return render_template("reset_password.html", valid=True, token=token)

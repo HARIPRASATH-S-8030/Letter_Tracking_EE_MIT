@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import html
 import os
@@ -99,15 +100,35 @@ def normalize_letter_description(text: str) -> str:
     return "\n".join(paragraphs).strip()
 
 
+def resolve_signature_file(signature_data_or_name: str | None, identifier: str) -> str:
+    """Ensure the signature image file exists on disk, reconstructing it from Base64 if needed."""
+    if not signature_data_or_name:
+        return ""
+
+    ensure_dirs()
+    if signature_data_or_name.startswith("data:image"):
+        try:
+            _, encoded = signature_data_or_name.split(",", 1)
+            raw_bytes = base64.b64decode(encoded)
+            file_name = f"cached_{identifier}.png"
+            target_path = os.path.join(settings.SIGNATURE_DIR, file_name)
+            with open(target_path, "wb") as handle:
+                handle.write(raw_bytes)
+            return target_path
+        except Exception as exc:
+            current_app.logger.warning("Failed to decode base64 signature for %s: %s", identifier, exc)
+            return ""
+
+    disk_path = os.path.join(settings.SIGNATURE_DIR, signature_data_or_name)
+    return disk_path if os.path.exists(disk_path) else ""
+
+
 def build_formal_letter_content(letter: Letter) -> dict[str, object]:
-    """Build the fixed-format formal letter content used for DOCX and TXT export."""
+    """Build the fixed-format formal letter content with reliable signature resolution."""
     subject = sentence_case(letter.generated_subject or letter.subject) or "Request"
     body_text = normalize_letter_description(letter.generated_body or letter.description)
-    sig_path = (
-        os.path.join(settings.SIGNATURE_DIR, letter.signature_file_name)
-        if letter.signature_file_name
-        else ""
-    )
+    sig_path = resolve_signature_file(letter.signature_file_name, letter.app_id)
+
     return {
         "heading_line": settings.LETTER_HEADING,
         "from_lines": [
@@ -126,7 +147,7 @@ def build_formal_letter_content(letter: Letter) -> dict[str, object]:
         "subject_line": subject if subject.lower().endswith("-reg.") else f"{subject} - Reg.",
         "body_text": body_text,
         "hod_verification": letter.status == settings.STATUS_APPROVED,
-        "signature_path": sig_path if (sig_path and os.path.exists(sig_path)) else "",
+        "signature_path": sig_path,
     }
 
 
@@ -385,8 +406,8 @@ def generate_letter_file(letter: Letter) -> str:
     return output_path
 
 
-def save_signature_image(file_storage, app_id: str) -> str:
-    """Validate and normalize a student signature image as a compact PNG."""
+def save_signature_image(file_storage, identifier: str) -> str:
+    """Read image bytes, validate format, and return Base64 string for database persistence."""
     if not HAVE_PIL:
         raise ValueError("Image support is unavailable on the server.")
 
@@ -395,10 +416,16 @@ def save_signature_image(file_storage, app_id: str) -> str:
     image = Image.open(file_storage.stream)
     image.verify()
     file_storage.stream.seek(0)
-    image = Image.open(file_storage.stream).convert("RGBA")
-    file_name = f"{app_id}_{uuid.uuid4().hex[:10]}.png"
-    image.save(os.path.join(settings.SIGNATURE_DIR, file_name), format="PNG", optimize=True)
-    return file_name
+
+    image_bytes = file_storage.read()
+    b64_string = f"data:image/png;base64,{base64.b64encode(image_bytes).decode('utf-8')}"
+
+    file_name = f"{identifier}_{uuid.uuid4().hex[:8]}.png"
+    local_path = os.path.join(settings.SIGNATURE_DIR, file_name)
+    with open(local_path, "wb") as handle:
+        handle.write(image_bytes)
+
+    return b64_string
 
 
 def ensure_letter_file(letter: Letter) -> str:
@@ -420,12 +447,17 @@ def hash_reset_token(token: str) -> str:
 
 
 def build_password_reset_link(raw_token: str) -> str:
-    """Build a reset URL from the configured application base URL to avoid untrusted host values."""
+    """Build an absolute reset URL from config or active request context."""
     base_url = (settings.APP_BASE_URL or os.environ.get("APP_BASE_URL", "")).strip().rstrip("/")
     token_value = (raw_token or "").strip()
-    if not base_url:
-        return f"/reset-password/{token_value}"
-    return f"{base_url}/reset-password/{token_value}"
+
+    if base_url:
+        return f"{base_url}/reset-password/{token_value}"
+
+    if has_request_context():
+        return url_for("reset_password", token=token_value, _external=True)
+
+    return f"/reset-password/{token_value}"
 
 
 def email_is_configured() -> bool:

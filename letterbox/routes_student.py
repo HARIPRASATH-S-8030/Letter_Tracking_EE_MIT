@@ -64,7 +64,7 @@ def register_student_routes(app):
                 app_id="",
                 name=user.name if user else session.get("name", ""),
                 email=user.email if user else session.get("email", ""),
-                phone=user.phone if user and user.phone else "",
+                phone=user.phone if (user and user.phone) else "",
                 request_types=REQUEST_TYPES,
                 request_type="Other",
                 generation_mode="manual",
@@ -91,7 +91,7 @@ def register_student_routes(app):
         name = user.name.strip()
         email = user.email.strip()
 
-        # Check form input first, fallback to user profile
+        # Read phone from form input first, fallback to user profile
         form_phone = request.form.get("phone", "").strip()
         phone = form_phone if form_phone else (user.phone.strip() if user.phone else "")
 
@@ -160,7 +160,7 @@ def register_student_routes(app):
                 description=original_description,
             ), 400
 
-        # Auto-persist valid phone to user record if missing
+        # Persist phone to profile automatically if missing
         if phone and not user.phone:
             user.phone = phone
             db.session.commit()
@@ -171,7 +171,7 @@ def register_student_routes(app):
             except AIGenerationError as exc:
                 return render_template(
                     "form.html",
-                    errors=[str(exc) or "Letter generation is temporarily unavailable. Please try again."],
+                    errors=[str(exc) or "Letter generation is temporarily unavailable."],
                     app_id="",
                     name=name,
                     email=email,
@@ -210,7 +210,7 @@ def register_student_routes(app):
                 try:
                     generated = generate_letter_content(preview["request_type"], preview["original_description"])
                 except AIGenerationError as exc:
-                    return render_template("form.html", errors=[str(exc) or "Letter generation is temporarily unavailable. Please try again."], request_types=REQUEST_TYPES, generation_mode="ai"), 503
+                    return render_template("form.html", errors=[str(exc) or "Letter generation is temporarily unavailable."], request_types=REQUEST_TYPES, generation_mode="ai"), 503
                 preview.update(generated)
                 session["ai_preview"] = preview
                 return render_template("form.html", preview=generated, preview_token=preview_token, request_types=REQUEST_TYPES, request_type=preview["request_type"], generation_mode="ai")
@@ -225,7 +225,7 @@ def register_student_routes(app):
                     original_description,
                 )
             except AIGenerationError:
-                return render_template("form.html", errors=["The edited letter content is invalid. Please review the facts and try again."], preview=preview, preview_token=preview_token, request_types=REQUEST_TYPES, request_type=request_type, generation_mode="ai"), 400
+                return render_template("form.html", errors=["The edited letter content is invalid. Please review and try again."], preview=preview, preview_token=preview_token, request_types=REQUEST_TYPES, request_type=request_type, generation_mode="ai"), 400
             subject = accepted["subject"]
             description = accepted["body"]
             content_source = "ai_edited" if subject != preview["subject"] or description != preview["body"] else "ai_generated"
