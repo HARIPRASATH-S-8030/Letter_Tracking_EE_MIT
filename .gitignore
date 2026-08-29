@@ -217,3 +217,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# --- Project Specific Artifacts ---
+database.db
+sent_emails/
+
+# Generated Letterbox Assets
+letterbox/generated/
+letterbox/qrcodes/
+letterbox/barcodes/
+letterbox/signatures/
+letterbox/sent_emails/
